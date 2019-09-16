@@ -1,0 +1,118 @@
+java实现多线程有2中方式:
+1.继承Thread类
+2.实现Runnable接口
+
+Thread类示例：
+
+public class ThreadOne extends Thread {
+    private int count = 5;
+
+    @Override
+    public synchronized void run() {
+
+        count--;
+
+        System.out.println("count:" + count + "--" + this.currentThread().getName());
+
+    }
+
+    public static void main(String[] args) {
+
+        ThreadOne myThread = new ThreadOne();
+
+        // t1到t5, 共享myThread类中的count变量, 对其进行操作
+        Thread t1 = new Thread(myThread, "t1");
+
+        Thread t2 = new Thread(myThread, "t2");
+
+        Thread t3 = new Thread(myThread, "t3");
+
+        Thread t4 = new Thread(myThread, "t4");
+
+        Thread t5 = new Thread(myThread, "t5");
+
+        t1.start();
+        t2.start();
+        t3.start();
+        t4.start();
+        t5.start();
+    }
+
+    /**
+     * count:3--t1
+     * count:2--t4
+     * count:3--t3
+     * count:1--t5
+     * count:0--t2
+     * count没有逐减是因为多线程对count进行了操作.
+     *
+     * 对run方法进行同步sychronized。进入这个方法只能有一个线程, 从而实现了打印逐减。
+     *
+     * count:4--t1
+     * count:3--t2
+     * count:2--t3
+     * count:1--t4
+     * count:0--t5
+     */
+}
+
+Runnable接口示例：
+
+public class RunnableOne implements Runnable {
+
+    private int count = 5;
+
+    @Override
+    public synchronized void run() {
+
+        count--;
+
+        System.out.println("count:"+count+"--");
+    }
+
+    public static void main(String[] args) {
+        RunnableOne runnableOne = new RunnableOne();
+
+        Thread t1 = new Thread(runnableOne);
+
+        Thread t2 = new Thread(runnableOne);
+
+        Thread t3 = new Thread(runnableOne);
+
+        Thread t4 = new Thread(runnableOne);
+
+        Thread t5 = new Thread(runnableOne);
+
+        t1.start();
+
+        t2.start();
+
+        t3.start();
+
+        t4.start();
+
+        t5.start();
+
+    }
+
+    /**
+     * count:3--
+     * count:3--
+     * count:2--
+     * count:1--
+     * count:0--
+     *
+     * 多线程操作公共变量count,
+     * 加上synchronized关键字 同步
+     */
+
+    /**
+     * count:4--
+     * count:3--
+     * count:2--
+     * count:1--
+     * count:0--
+     */
+}
+
+
