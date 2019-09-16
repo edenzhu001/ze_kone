@@ -1,0 +1,151 @@
+一、synchronized特性
+
+1.锁重入特性
+当线程A请求由另一个线程持有的锁时, 线程A会阻塞. 
+当线程请求由自己持有的锁时, 由于synchronized的可重入性, 请求可以成功.
+
+举例：在一个Synchronized修饰的方法中，调用本类中其他的synchroniezd修饰的方法 是可以永远得到锁的. 
+
+示例：
+public class SyncDubbo {
+
+    public synchronized  void method1(){
+
+        System.out.println("method1---");
+        method2();
+    }
+
+    public synchronized  void method2(){
+
+        System.out.println("method2---");
+        method3();
+    }
+
+    public synchronized  void method3(){
+
+        System.out.println("method3---");
+    }
+
+    public static void main(String[] args) {
+
+        final SyncDubbo d = new SyncDubbo();
+
+        new Thread(new Runnable() {
+
+            @Override
+            public void run() {
+
+                d.method1();
+
+            }
+
+        }).start();
+    }
+}
+
+
+//执行结果：
+method1-----
+method2-----
+method3-----
+
+场景：用户名和密码保存在本地txt文件中，则登录验证方法和更新密码方法都应该被加synchronized，
+那么当更新密码的时候需要验证密码的合法性，所以需要调用验证方法，此时是可以调用的。
+
+可重入性的原因:
+自己可以获取自己的内部锁。假设线程T获取了对象A的锁，如果该线程T在未释放锁之前再次请求该对象的
+
+锁，如果没有可重入锁的机制，是不会获取到锁的，这样的话就会出现死锁。
+
+作用：避免死锁。
+
+2. 父子可继承性
+子类中的同步方法可以调用父类中的同步方法. 
+
+static class Main{
+
+        public int i = 5;
+
+        public synchronized  void operationSup(){
+            i--;
+
+            System.out.println("Main print i = " + i);
+
+            try{
+
+                Thread.sleep(100);
+
+            } catch (InterruptedException e) {
+
+                e.printStackTrace();
+
+            }
+
+        }
+
+    }
+
+    static class Sub extends Main{
+
+        public synchronized  void operationSub(){
+
+            while ( i > 0){
+
+                operationSup();
+
+                System.out.println("Sub print i = " + i);
+
+                try{
+                    Thread.sleep(100);
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
+            }
+        }
+    }
+
+    public static void main(String[] args) {
+
+        new Thread(new Runnable() {
+
+            @Override
+            public void run() {
+
+                Sub sub = new Sub();
+
+                sub.operationSub();
+            }
+        }).start();
+    }
+}
+
+3.其他特性
+(1)出现异常时，锁自动释放，即一个线程的代码执行过程中出现异常的话，其所持有的锁会自动释放。
+(2)将任意对象作为监视器monitor
+示例代码(String对象作为监视器)：
+public class StringLock {
+    private String lock = "lock";
+    public void method() {
+        synchronized (lock) {
+            try {
+                System.out.println("当前线程： " +
+                Thread.currentThread().getName() + "开始");
+                Thread.sleep(1000);
+                System.out.println("当前线程： " +Thread.currentThread().getName() + "结束");
+            } catch (InterruptedException e) {}
+        }
+    } 
+    public static void main(String[] args) {
+        final StringLock stringLock = new StringLock();
+            new Thread(new Runnable() {
+                public void run() {
+                    stringLock.method();
+                    }
+            }, "t1").start();
+            new Thread(new Runnable() {
+                public void run() {
+                    stringLock.method();
+                    }
+            }, "t2").start();
+       }
+}
