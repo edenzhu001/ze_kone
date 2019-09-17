@@ -28,11 +28,20 @@
   
   可能存在的2种程序顺序执行,如图rela_02.png
   A -> B -> C 或 B -> A -> C
+  单线程下, 遵循as-if-serial, C的结果不会变, 所以 无论是上述哪种顺序, 程序员都会认为是按照自己的代码顺序执行的命令.
 
 2.程序顺序规则
+在上述的计算圆面积的代码中, 有3个happens-before关系.
+A happens- before B；
+B happens- before C；
+A happens- before C；
+在重排序操作和happens-before关系操作的结果一致,JMM 会认为这种重排序并不非法（not illegal），JMM 允许这种重排序。
+
 3.重排序对多线程的影响
 4.编译器重排序
 5.指令集并行的重排序
 6.内存系统的重排序
 7.memory barrier
 8.JDK 1.7 内存屏障实现
+
+参考资料：https://www.jianshu.com/p/c6f190018db1
