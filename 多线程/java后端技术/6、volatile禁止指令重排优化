@@ -1,4 +1,4 @@
-一、volatile的作用详解
+﻿一、volatile的作用详解
 
 在升级版本的线程安全的懒汉单例模式中, 如下, 
   
@@ -37,7 +37,7 @@
   而且, volatile保证变量在多个线程的可见性. 
   
   (3)volatile关键字就是将该线程操作的变量值 迅速从该线程的工作内存中读取写入到主内存中, 供其他线程可见到该变量的值.
-  图示, volatile_varialble.
+  图示, volatile_varialble.png
   
   
   
