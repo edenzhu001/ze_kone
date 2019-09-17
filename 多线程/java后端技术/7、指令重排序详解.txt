@@ -44,5 +44,4 @@ A happens- before C；
 7.memory barrier
 8.JDK 1.7 内存屏障实现
 
-
 参考资料：https://www.jianshu.com/p/c6f190018db1
