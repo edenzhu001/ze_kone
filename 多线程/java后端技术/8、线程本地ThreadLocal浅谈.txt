@@ -1,0 +1,79 @@
+之前的单例模式中, 变量值的共享是public static. 
+但是线程自己本身也有共享变量怎么解决?
+
+类ThreadLocal可以解决多线程访问问题, 将线程不安全的变量封装成线程安全的变量. 
+可以将ThreadLocal类比喻成全局存放数据的盒子, 盒子中可以存放各个线程的私有变量. 
+
+示例代码, 帮助理解. 
+public class ThreadLocalDemo {
+
+    public static ThreadLocal<List<String>> threadLocal = new ThreadLocal<>();
+
+    public void setThreadLocal(List<String> list){
+
+        threadLocal.set(list);
+
+    }
+
+    public void getThreadLocal(){
+
+        threadLocal.get().forEach(name -> System.out.println(Thread.currentThread().getName() +"--"+ name));
+
+    }
+
+    public static void main(String[] args) {
+
+        final ThreadLocalDemo threadLocal = new ThreadLocalDemo();
+
+        new Thread(() -> {
+
+            List<String> params = new ArrayList<>(3);
+
+            params.add("张三");
+            params.add("李四");
+            params.add("王五");
+
+            threadLocal.setThreadLocal(params);
+
+            threadLocal.getThreadLocal();
+
+        }).start();
+
+        new Thread(() -> {
+
+//            try {
+//
+//                Thread.sleep(1000);
+//
+//            } catch (InterruptedException e) {
+//
+//                e.printStackTrace();
+//
+//            }
+
+            List<String> params = new ArrayList<>(2);
+
+            params.add("Chinese");
+            params.add("English");
+
+            threadLocal.setThreadLocal(params);
+
+            threadLocal.getThreadLocal();
+
+        }).start();
+
+    }
+
+}
+  结果：
+  Thread-1--Chinese
+  Thread-0--张三
+  Thread-0--李四
+  Thread-0--王五
+  Thread-1--English
+  
+  很显然可以看到, 虽然多个线程对静态变量threadLocal进行了操作,但是由于该变量是用ThreadLocal修饰的, 
+  所以不同的线程只能访问到自己专属的值. 
+  
+  当使用ThreadLocal维护变量时, ThreadLocal为每个使用该变量的线程提供独立的变量副本, 所以每个线程都可以独立的改变自己的副本, 而不影响其他线程的副本. 
+  
