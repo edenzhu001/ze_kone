@@ -1,3 +1,4 @@
+一、首次理解
 之前的单例模式中, 变量值的共享是public static. 
 但是线程自己本身也有共享变量怎么解决?
 
@@ -77,3 +78,210 @@ public class ThreadLocalDemo {
   
   当使用ThreadLocal维护变量时, ThreadLocal为每个使用该变量的线程提供独立的变量副本, 所以每个线程都可以独立的改变自己的副本, 而不影响其他线程的副本. 
   
+  示例：
+  package com.test;  
+  
+    public class TestNum {  
+        // ①通过匿名内部类覆盖ThreadLocal的initialValue()方法，指定初始值  
+        private static ThreadLocal<Integer> seqNum = new ThreadLocal<Integer>() {  
+            public Integer initialValue() {  
+                return 0;  
+            }  
+        };  
+
+        // ②获取下一个序列值  
+        public int getNextNum() {  
+            seqNum.set(seqNum.get() + 1);  
+            return seqNum.get();  
+        }  
+
+        public static void main(String[] args) {  
+            TestNum sn = new TestNum();  
+            // ③ 3个线程共享sn，各自产生序列号  
+            TestClient t1 = new TestClient(sn);  
+            TestClient t2 = new TestClient(sn);  
+            TestClient t3 = new TestClient(sn);  
+            t1.start();  
+            t2.start();  
+            t3.start();  
+        }  
+
+        private static class TestClient extends Thread {  
+            private TestNum sn;  
+
+            public TestClient(TestNum sn) {  
+                this.sn = sn;  
+            }  
+
+            public void run() {  
+                for (int i = 0; i < 3; i++) {  
+                    // ④每个线程打出3个序列值  
+                    System.out.println("thread[" + Thread.currentThread().getName() + "] --> sn["  
+                             + sn.getNextNum() + "]");  
+                }  
+            }  
+        }  
+    }  
+    结果：
+    thread[Thread-0] --> sn[1]
+    thread[Thread-1] --> sn[1]
+    thread[Thread-2] --> sn[1]
+    thread[Thread-1] --> sn[2]
+    thread[Thread-0] --> sn[2]
+    thread[Thread-1] --> sn[3]
+    thread[Thread-2] --> sn[2]
+    thread[Thread-0] --> sn[3]
+    thread[Thread-2] --> sn[3]
+    
+     通常我们通过匿名内部类的方式定义ThreadLocal的子类，提供初始的变量值，如例子中①处所示。TestClient线程产生一组序列号，在③处，我们生成3个TestClient，它们共享同一个TestNum实例。
+     每个线程虽然共享同一个TestNum类的sn, 但是相互之间没干扰. 各自独立生成有序的序号. 这就是ThreadLocal为每个线程提供了单独的副本变量. 
+  
+  ThreadLocal和Thread同步的异同：
+  
+  相同点：都是为了解决多线程中相同变量的访问冲突问题.
+  
+  不同点：
+  在同步机制中, 对象的锁机制保证了同一时刻只有一个线程能访问变量. 
+  ThreadLocal从另一个角度看, 它为每个线程提供了独立的变量副本. 每个线程 有自己独立的变量副本, 互不干扰. 从而隔离了各个线程之间数据访问冲突的问题. (因为每个线程都用自己的变量副本, 访问操作 都与其他线程无关了). 
+  应用：ThreadLocal提供了线程安全的变量封装方式, 在编写多线程代码时, 可以把不安全的变量封装到ThreadLocal中. TODO
+  
+  概括：
+    同步机制是用时间换空间：访问串行化，对象共享化。
+    ThreadLocal则是以空间换时间：访问并行化，对象独享化。
+    前者仅提供一份变量，让不同的线程排队访问，而后者为每一个线程都提供了一份变量，因此可以同时访问而互不影响。
+  
+二、再次理解
+  
+  Thread、ThreadLocal和ThreadLocalMap类:
+    
+    
+    部分源码：
+    -----------------*****************-----------------------------------------------
+    
+    public class Thread implements Runnable {
+        /* ThreadLocal values pertaining to this thread. This map is maintained
+         * by the ThreadLocal class. */
+        ThreadLocal.ThreadLocalMap threadLocals = null;
+    }
+    
+    -----------------*****************-----------------------------------------------
+    
+    public class ThreadLocal<T> {
+        
+      ...
+      public void set(T value) {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null)
+            map.set(this, value);
+        else
+            createMap(t, value);
+    }
+
+    public T get() {
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null) {
+            ThreadLocalMap.Entry e = map.getEntry(this);
+            if (e != null) {
+                @SuppressWarnings("unchecked")
+                T result = (T)e.value;
+                return result;
+            }
+        }
+        return setInitialValue();
+    }
+    
+    private T setInitialValue() {
+        T value = initialValue();
+        Thread t = Thread.currentThread();
+        ThreadLocalMap map = getMap(t);
+        if (map != null)
+            map.set(this, value);
+        else
+            createMap(t, value);
+        return value;
+    }
+
+    protected T initialValue() {
+        return null;
+    }
+    public void remove() {
+         ThreadLocalMap m = getMap(Thread.currentThread());
+         if (m != null)
+             m.remove(this);
+     }
+     
+    ThreadLocalMap getMap(Thread t) {
+        return t.threadLocals;
+    }
+    
+        -----------**********-----------
+      static class ThreadLocalMap {
+      
+      ...
+      
+       static class Entry extends WeakReference<ThreadLocal<?>> {
+            /** The value associated with this ThreadLocal. */
+            Object value;
+
+            Entry(ThreadLocal<?> k, Object v) {
+                super(k);
+                value = v;
+            }
+        }
+      
+      ...
+      
+      }
+      
+       -----------**********-----------
+      ...
+    
+    }
+
+    Thread
+        |--ThreadLocal.ThreadLocalMap threadLocals = null
+        
+    ThreadLocal
+        |--get()
+        |--set()
+        |--setInitialValue()
+        |--initialValue()
+        |--remove()
+        |--ThreadLocalMap
+                    |--Entry extends WeakReference<ThreadLocal<?>>
+                        |--Object value;
+                    
+    ThreadLocal运行原理流程：
+    (1)首先我们定义一个用ThreadLocal修饰的变量, 这个变量将是每个线程存放全生命周期变量的地方.
+    public static ThreadLocal<SimpleDateFormat> tlSdf = new ThreadLocal<SimpleDateFormat>(){//可设置默认值};
+    
+    (2)通过tlSdf的get()方法, 获取到所属该线程的变量值. 
+       其中, 第一获取到当前线程thread, 作为入参调用getMap()方法, 获得到当前线程的属性ThreadLocalMap类 threadLocals, 在get()方法中用map接收.
+       第二通过map.getEntry(this)获取到entry, 其中this指的是ThreadLocal. entry.value然后强转成我们需要的SimpleDateFormat对象. 
+       
+    (3)通过tlSdf的set()方法，可以设置所属该线程的变量值.
+       其中, 第一获得当前线程thread, 获取线程的属性ThreadLocalMap类型的map. map的set(this,value)方法就设置key为this,值为value. 
+       
+    (4)SimpleDateFormat sdf = ***Util.getValue(); 
+        ...
+        
+    从中我们可以发现这个Map的key是ThreadLocal类的实例对象，value为用户的值，并不是网上大多数的例子key是线程的名字或者标识。
+
+    注意点：
+    1.ThreadLocalMap中用entry来保存K-V结构数据. 其中的key已经被限定死了, 只能是ThreadLocal类的实例对象. 
+    static class Entry extends WeakReference<ThreadLocal> {
+        /** The value associated with this ThreadLocal. */
+        Object value;
+
+        Entry(ThreadLocal k, Object v) {
+            super(k);
+            value = v;
+        }
+    }
+    Entry继承自WeakReference（弱引用，生命周期只能存活到下次GC前），但只有Key是弱引用类型的，Value并非弱引用。
+    
+    
+  
+
