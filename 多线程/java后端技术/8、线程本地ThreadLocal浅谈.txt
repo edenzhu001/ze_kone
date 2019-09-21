@@ -282,6 +282,13 @@ public class ThreadLocalDemo {
     }
     Entry继承自WeakReference（弱引用，生命周期只能存活到下次GC前），但只有Key是弱引用类型的，Value并非弱引用。
     
+    2.解释key是弱引用以及为什么是弱引用. 
+    当设置一个ThreadLocal变量时，这个map里就多了一对ThreadLocal -> Object的映射。
+    内存如图ThreadLocal01.png.
+    
+    
+    
+    
     
   
 
