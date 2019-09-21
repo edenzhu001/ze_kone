@@ -269,7 +269,12 @@ public class ThreadLocalDemo {
         
     从中我们可以发现这个Map的key是ThreadLocal类的实例对象，value为用户的值，并不是网上大多数的例子key是线程的名字或者标识。
 
-    注意点：
+
+
+
+
+    4个重要的注意点：
+    
     1.ThreadLocalMap中用entry来保存K-V结构数据. 其中的key已经被限定死了, 只能是ThreadLocal类的实例对象. 
     static class Entry extends WeakReference<ThreadLocal> {
         /** The value associated with this ThreadLocal. */
@@ -280,14 +285,124 @@ public class ThreadLocalDemo {
             value = v;
         }
     }
-    Entry继承自WeakReference（弱引用，生命周期只能存活到下次GC前），但只有Key是弱引用类型的，Value并非弱引用。
+    Entry继承自WeakReference（弱引用，生命周期只能存活到下次GC前），但只有Key是弱引用类型的，Value是强引用。
+    强引用：普通的引用，强引用指向的对象不会被回收；
+    软引用：仅有软引用指向的对象，只有发生gc且内存不足，才会被回收；
+    弱引用：仅有弱引用指向的对象，只要发生gc就会被回收。
     
     2.解释key是弱引用以及为什么是弱引用. 
+    
+    解答1：
     当设置一个ThreadLocal变量时，这个map里就多了一对ThreadLocal -> Object的映射。
-    内存如图ThreadLocal01.png.
+    内存如图ThreadLocal01.png, java内存以后会花时间重点说. 
+    stack(堆栈)    ThreadLocal Ref              CurrentThread Ref
+                         ||                           ||
+    heap(数据区)    ThreadLocal                  CurrentThread
+                          :                       ||
+                          :                       map
+                          :.................      ||
+                                           :      ||
+                                    Entry(key,value)  
+     虚线是弱引用, ||是强引用. 
+     
+    Stack-ThreadLocalRef：ThreadLocal的引用threadLocal,
+    Stack-CurrentThreadRef： 当前线程在栈中的引用,
+    Heap-ThreadLocal：ThreadLocal实例,
+    Heap-CurrentThread：当前线程实例,
+    Heap-Map：当前线程内部的threadLocals变量所对应的map实例,
+    Heap-Entry：上述map的entry,
+    Heap-Entry-Key：上述entry的键的弱引用,
+    Heap-Entry-Value：上述entry的值的强引用. 
+    
+    所以key(threadLocal)是弱引用.
+    
+    解答2:
+    其实可以反证。假设key是强引用. 那么当ThreadLocal的引用threadLocal(强引用)被回收时, map中的key也就是ThreadLocal的强引用还存在, 如果没有手动删除这个key, 则ThreadLocal对象不会被回收. 所以只要当前线程不消亡，ThreadLocalMap引用的那些对象就不会被回收，可以认为这导致Entry内存泄漏。
+    那如果key是弱引用呢？
+    ThreadLocal对象有threadLocal强引用和map中key弱引用.一旦threadLocal被回收, 那只想ThreadLocal对象只剩下key弱引用了. 在下次GC的时候就会把ThreadLocal对象给回收掉. 
+    这样 大家可能会想到：map中的value是强引用, 那会造成内存泄漏,map中的key更是null, 完全无法访问到value.
+    ThreadLocal在设计的时候考虑到这一层,  在每次get() set() remove() 时都会去清空map中key为null的value值. 如此一来，value也能被回收了。
+    
+    StaleEntry '脏Entry'
+    set()源码：
+    private void set(ThreadLocal<?> key, Object value) {
+
+    // We don't use a fast path as with get() because it is at
+    // least as common to use set() to create new entries as
+    // it is to replace existing ones, in which case, a fast
+    // path would fail more often than not.
+
+    Entry[] tab = table;
+    int len = tab.length;
+    int i = key.threadLocalHashCode & (len-1);
+
+    for (Entry e = tab[i];
+             e != null;
+             e = tab[i = nextIndex(i, len)]) {
+        ThreadLocal<?> k = e.get();
+
+        if (k == key) {
+            e.value = value;
+            return;
+        }
+
+        if (k == null) { ////如果key是null,则把这个i位置让给新key-value
+            replaceStaleEntry(key, value, i);
+            return;
+        }
+     }
+
+    tab[i] = new Entry(key, value);
+    int sz = ++size;
+    if (!cleanSomeSlots(i, sz) && sz >= threshold)////防止有疏漏, cleanSomeSlots()也是检测并清除脏entry
+        rehash();
+}
     
     
+    3.内存泄漏
+    总结一下内存泄露（本该回收的无用对象没有得到回收）的原因：
+    - 弱引用一定程度上回收了无用对象，但前提是开发者手动清理掉ThreadLocal对象的强引用（如threadLocal）。否则只要线程一直在，ThreadLocalMap的key-     value一直在增加。
+    解决方法：当某个ThreadLocal变量（比如：threadLocal）不再使用时，记得threadLocal.remove()，删除该key。
+
+    如threadLocal的生命周期跟ThreadLocal类的生命周期一样长。意味着如threadLocal不会被回收，弱引用不会起作用，所以当前线程无法通过ThreadLocal的机     制措施清除threadLocal所对应的value的强引用。所以,threalLocal要记得手动清除.
+
+    通常，我们需要保证作为key的threadLocal类型能够被全局访问到，同时也必须保证其为单例，因此，在一个类中将其设为static类型便成为了惯用做法。
     
+    4.既然key是ThreadLocal的实例对象, 如何实现map中多个数据key-value?  
+    那就是多个ThreadLocal实例对象, 多个TheadLocal如何区分?请查看源码：
+    ThreadLocal4个成员变量：
+    /**
+     * ThreadLocals rely on per-thread linear-probe hash maps attached
+     * to each thread (Thread.threadLocals and
+     * inheritableThreadLocals).  The ThreadLocal objects act as keys,
+     * searched via threadLocalHashCode.  This is a custom hash code
+     * (useful only within ThreadLocalMaps) that eliminates collisions
+     * in the common case where consecutively constructed ThreadLocals
+     * are used by the same threads, while remaining well-behaved in
+     * less common cases.
+     */
+    private final int threadLocalHashCode = nextHashCode();
+
+    /**
+     * The next hash code to be given out. Updated atomically. Starts at
+     * zero.
+     */
+    private static AtomicInteger nextHashCode =
+        new AtomicInteger();
+
+    /**
+     * The difference between successively generated hash codes - turns
+     * implicit sequential thread-local IDs into near-optimally spread
+     * multiplicative hash values for power-of-two-sized tables.
+     */
+    private static final int HASH_INCREMENT = 0x61c88647;
+
+    /**
+     * Returns the next hash code.
+     */
+    private static int nextHashCode() {
+        return nextHashCode.getAndAdd(HASH_INCREMENT);
+    }
     
     
   
