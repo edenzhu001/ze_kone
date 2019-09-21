@@ -386,5 +386,9 @@ public class ThreadLocalDemo {
     static修饰的AtomicInteger类型的 成员变量 nextHashCode和常量 HASH_INCREMENT. 
     nextHashCode是类变量, 每次调用ThreadLocal类都可以保证nextHashCode被更新到新的值. 然后atomicInteger可以提供原子操作, 因此生成不用担心多线程. 
     
+    5、哈希冲突怎么解决
+    ThreadLocalMap中解决哈希冲突的方式并非链表的方式，而是采用线性探测的方式，具体来说，就是简单的步长加1或减1，寻找下一个相邻的位置。
+    详细待续...
+    
     TheadLocal的介绍先告一段落,以后有再做补充.  下一篇谈谈它的使用.
 
