@@ -370,40 +370,21 @@ public class ThreadLocalDemo {
     
     4.既然key是ThreadLocal的实例对象, 如何实现map中多个数据key-value?  
     那就是多个ThreadLocal实例对象, 多个TheadLocal如何区分?请查看源码：
-    ThreadLocal4个成员变量：
-    /**
-     * ThreadLocals rely on per-thread linear-probe hash maps attached
-     * to each thread (Thread.threadLocals and
-     * inheritableThreadLocals).  The ThreadLocal objects act as keys,
-     * searched via threadLocalHashCode.  This is a custom hash code
-     * (useful only within ThreadLocalMaps) that eliminates collisions
-     * in the common case where consecutively constructed ThreadLocals
-     * are used by the same threads, while remaining well-behaved in
-     * less common cases.
-     */
+    ThreadLocal4个变量：
     private final int threadLocalHashCode = nextHashCode();
 
-    /**
-     * The next hash code to be given out. Updated atomically. Starts at
-     * zero.
-     */
-    private static AtomicInteger nextHashCode =
-        new AtomicInteger();
+    private static AtomicInteger nextHashCode = new AtomicInteger();
 
-    /**
-     * The difference between successively generated hash codes - turns
-     * implicit sequential thread-local IDs into near-optimally spread
-     * multiplicative hash values for power-of-two-sized tables.
-     */
     private static final int HASH_INCREMENT = 0x61c88647;
 
-    /**
-     * Returns the next hash code.
-     */
     private static int nextHashCode() {
         return nextHashCode.getAndAdd(HASH_INCREMENT);
     }
     
+    对于每个ThreadLocal类的实例 都有final修饰的int属性threadLocalHashCode, 初始化后, 不可修改, 它可以唯一标志该对象. 
+    如何生成这个值?
+    static修饰的AtomicInteger类型的 成员变量 nextHashCode和常量 HASH_INCREMENT. 
+    nextHashCode是类变量, 每次调用ThreadLocal类都可以保证nextHashCode被更新到新的值. 然后atomicInteger可以提供原子操作, 因此生成不用担心多线程. 
     
-  
+    TheadLocal的介绍先告一段落,以后有再做补充.  下一篇谈谈它的使用.
 
