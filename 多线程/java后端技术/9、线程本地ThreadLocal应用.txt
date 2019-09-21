@@ -6,8 +6,98 @@ ThreadLocal将每个线程的各个变量副本值保存在线程中, Thread对�
 每个线程往这个ThreadLocal中读写都是线程隔离的, 一种将可变数据通过每个线程有自己的独立副本来实现线程封闭的机制.
 
 应用：
-(1)  当很多线程需要多次使用同一个对象，并且需要该对象具有相同初始化值；
 
-(2)  适用于资源共享但不需要维护状态的情况，也就是一个线程对资源的修改，不影响另一个线程的运行；
+一、保护封装线程不安全的对象
+  很多同学都喜欢这样一段代码：
+    String pattern = "yyyyMMdd";
+    public static SimpleDateFormat sdf = new SimpleDateFormat(pattern);
+    或
+    SimpleDateFormat sdf = new SimpleDateFormat(pattern);
+  写在日期工具类中, 其实这样是线程不安全的.
+    String dateText = "20190921"; 
+    sdf.parse(dateText);
+  我之前就有同事出现过生产问题. 原因可以去百度搜一下.
+  
+  解决方法:
+   (1)每次使用完就sdf = null; 下次使用再直接new对象. 
+   (2)同步处理parse或format方法
+   (3)ThreadLocal派上用场.
+    private static ThreadLocal<SimpleDateFormat> tlSdf = new ThreadLocal();
+    public static DateFormat getDateFormat(String date_format){
+        DateFormat df = threadLocal.get();
+        if(df==null){
+            df = new SimpleDateFormat(date_format);
+            threadLocal.set(df);
+        }
+        return df;
+    }
 
-(3) 基于ThreadLocal实现线程安全是采用"空间换时间"，synchronized顺序执行是"时间换取空间"。
+二、使用ThreadLocal实现线程私有的数据库Connection, 实际上是【数据库会话】.
+  Hibernate和MyBatis为了实现【线程的事物提交】, 需要保证【这些提交都在一次数据库连接connection中】, 这样需要保证每个线程都独享一个Connection, threadLocal又派上用场了. 
+  MyBatis的SqlSessionManager源码：
+  public class SqlSessionManager implements SqlSessionFactory, SqlSession {
+      //session工厂类
+      private final SqlSessionFactory sqlSessionFactory;
+      //session的代理
+      private final SqlSession sqlSessionProxy;
+
+      //使用ThreadLocal为线程绑定SqlSession
+      private final ThreadLocal<SqlSession> localSqlSession = new ThreadLocal<SqlSession>();//****************************声明定义
+
+      private SqlSessionManager(SqlSessionFactory sqlSessionFactory) {
+        //主要是读取dataSource和解析Mapping.xml
+        this.sqlSessionFactory = sqlSessionFactory;
+
+        //session代理类，被代理对象就是localSqlSession.get()
+        this.sqlSessionProxy = (SqlSession) Proxy.newProxyInstance(
+            SqlSessionFactory.class.getClassLoader(),
+            new Class[]{SqlSession.class},
+            new SqlSessionInterceptor());
+      }
+
+      //如下是调用父类SessioinFactory生成session并放入localSqlSession中的入口方法
+      public void startManagedSession() {
+        this.localSqlSession.set(openSession());///********************************************************************set()
+      }
+
+      //代理类实现的InvocationHandler接口，被代理的session从localSqlSession中获取
+      private class SqlSessionInterceptor implements InvocationHandler {
+        public SqlSessionInterceptor() {
+            // Prevent Synthetic Access
+        }
+
+        @Override
+        public Object invoke(Object proxy, Method method, Object[] args) throws Throwable {
+
+          //sqlSession从localSqlSession中获取，并设置为被代理对象！
+          final SqlSession sqlSession = SqlSessionManager.this.localSqlSession.get();///*******************************get()
+          if (sqlSession != null) {
+            try {
+              return method.invoke(sqlSession, args);
+            } catch (Throwable t) {
+              throw ExceptionUtil.unwrapThrowable(t);
+            }
+          } else {
+            //如果线程的session不存在生成session，此时事务就直接提交
+            final SqlSession autoSqlSession = openSession();
+            try {
+              final Object result = method.invoke(autoSqlSession, args);
+              autoSqlSession.commit();
+              return result;
+            } catch (Throwable t) {
+              autoSqlSession.rollback();
+              throw ExceptionUtil.unwrapThrowable(t);
+            } finally {
+              autoSqlSession.close();
+            }
+          }
+        }
+      }
+    }
+  
+  
+  三、方便线程声明周期中参数传递
+   从接受请求到返回响应所经过的程序都是属于同一个线程, 开发者可以根据需要, 将一些非线程安全的的变量以ThreadLocal存放.
+   在同一次请求响应的线程中,所有对象所访问的同一ThreadLocal变量都是当前线程所绑定的. 
+   
+   以后看源码的时候再做更多的补充...
