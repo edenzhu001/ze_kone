@@ -22,7 +22,7 @@
   (2)是用来通知那些可能等待该对象的对象锁的其他线程, 如果有多个线程等待, 则由线程规划器随机挑选出其中一个呈wait状态的线程，
   对其发出通知notify，并使它等待获取该对象的对象锁. 
   
-  (3)这里需要注意的是，执行notify方法之后，当前线程不会立即释放其拥有的该对象锁，而是执行完之后才会释放该对象锁，
+  (3)重点：这里需要注意的是，执行notify方法之后，当前线程不会立即释放其拥有的该对象锁，而是当前线程执行完之后才会释放该对象锁，
   被通知的线程也不会立即获得对象锁，而是等待notify方法执行完之后，释放了该对象锁，才可以获得该对象锁。[???]
   
   (4)notifyAll()通知所有等待同一共享资源的全部线程从等待状态退出，进入可运行状态，重新竞争获得对象锁。
@@ -30,7 +30,232 @@
   总结：
   （1）wait()/notify()要集合synchronized关键字一起使用，因为他们都需要首先获取该对象的对象锁；
 
-  （2）wait方法是释放锁，notify方法是不释放锁的；
+  （2）wait方法是释放锁，notify方法是不释放锁的;
   
    (3) 线程生命周期如图thread_life.png
    
+                ———【阻塞】——
+                |          |
+   【新建】——>【就绪】——>【运行】——>【死亡】
+   
+   【新建】：new出对象, JVM分配内存, 初始化变量. 此时线程没有运行, 是New状态. 
+   
+   【就绪】：在调用start()方法后, JVM会为其创建函数调度栈和计数器. 此时线程仍然没有运行, 而是等待CPU的执行片,就是等待CPU分配.是就绪状态. 
+   
+   【运行】：就绪线程获取到处理器资源, 就会运行起来.就是运行状态. 
+   
+   【阻塞】：由【运行】进入【阻塞】的原因：
+        cpu执行片用完, JVM切换到其他线程执行. 
+        sleep()方法调用.
+        线程调用了阻塞IO方法, 该方法返回之前,线程会一直阻塞.
+        线程试图获取被其他线程持有的同步监视器.
+        线程在等待某个通知.
+        
+        线程进入【阻塞】之后, 接着只能继续【阻塞】或再次进入【就绪】状态.
+        
+        由阻塞进入就绪状态原因：
+        sleep()方法经过了时间.
+        线程调用的IO阻塞方法返回.
+        线程成功获取同步监视器.
+        线程收到其他线程发出的通知.
+        
+        所以 【阻塞】只能是进入【就绪】. 
+        
+        通常情况下，就绪状态和运行状态的转换是不受程序控制的，而是由JVM线程调度机制控制的
+        yield()方法可以让运行状态的线程进入就绪状态
+        
+   【死亡】：线程结束后, 会处于死亡状态. 
+        结束方式：
+          run()或call()正常执行完成, 线程正常结束.
+          线程跑出未捕获的Exception或Error.
+          直接调用线程的stop() 结束线程, 容易死锁.
+        
+   注意点：
+   子线程一旦启动, 其地位和主线程是一样的. 所以主线程结束, 子线程不受影响, 不会跟着结束. 
+   线程对象的isAlive()在就绪, 运行, 阻塞时返回true. 在新建, 死亡时返回false. 
+   对已经死亡的线程调用start()是无效的, 会抛出异常. 死亡的线程不可再次作为线程来执行.
+   对于新建的线程, 调用两次start()方法也会抛出异常.
+   
+   一段应用wait()/notify()的代码：
+       public class NotifyTest {
+
+        private static List list = new ArrayList(0);
+
+        public static void main(String[] args) throws InterruptedException {
+            Object obj = new Object();
+
+            Thread t1 = new Thread() {
+                @Override
+                public void run() {
+                    synchronized (obj) {
+                        if (list.size() != 5) {
+                            System.out.println("wait begin...");
+                            try {
+                                obj.wait();
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                            System.out.println("wait end...");
+                        }
+                    }
+
+                }
+
+            };
+
+            t1.start();
+            Thread.sleep(1000);
+
+            Thread t2 = new Thread() {
+                @Override
+                public void run() {
+                    synchronized (obj) {
+                        for (int i = 0; i < 10; i++) {
+
+                            list.add("aa");
+                            System.out.println("添加第" + (i+1) + "条.");
+                            try {
+                                Thread.sleep(1000);
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            }
+                            if (list.size() == 5) {
+                                System.out.println("通知 begin...");
+                                obj.notify();
+                                System.out.println("通知 end...");
+                            }
+
+                        }
+                    }
+                }
+            };
+            t2.start();
+        }
+    }
+   
+   结果：
+   wait begin...
+    添加第1条.
+    添加第2条.
+    添加第3条.
+    添加第4条.
+    添加第5条.
+    通知 begin...
+    通知 end...
+    添加第6条.
+    添加第7条.
+    添加第8条.
+    添加第9条.
+    添加第10条.
+    wait end...
+
+    解析：先t1运行, 所以先获取到obj的锁. 执行内容是wait(), 所以是新建->就绪->运行->阻塞状态, 同时wait()释放锁. 
+         t2线程在等待obj锁, synchronized关键字. 当t1释放锁时, t2就会获取到锁, 执行循环, 在循环过程中调用notify(),
+         并继续循环任务直至线程结束,线程结束后释放锁. 所以是阻塞->就绪->运行->死亡, 同时释放锁. 
+         t1在被notify()后,等待t2释放锁,t2释放后,t1获得锁并继续执行完.所以是阻塞->就绪->运行->死亡.       
+
+    一个很重要的点：
+    线程与锁是分不开的, 线程的同步、等待、唤醒都与锁密不可分. 
+
+    再看另一个案例：
+            import org.omg.PortableServer.THREAD_POLICY_ID;
+
+          import java.sql.SQLOutput;
+          import java.util.LinkedList;
+          import java.util.concurrent.atomic.AtomicInteger;
+
+          public class MyQueue {
+
+              private final LinkedList<Object> list = new LinkedList<Object>();
+
+              private final AtomicInteger count = new AtomicInteger();
+
+              private final int intMax = 5;
+
+              private final int intMin = 0;
+
+              private Object lock = new Object();
+
+              public void put(Object obj) {
+                  synchronized (lock){
+                      while (list.size() == intMax){
+                          try {
+                              lock.wait();
+                          } catch (InterruptedException e) {
+                              e.printStackTrace();
+                          }
+                      }
+
+                      list.add(obj);
+                      count.getAndIncrement();
+                      System.out.println("元素"+obj+"被添加...");
+                      lock.notify();
+                  }
+              }
+
+              public Object get(){
+                  Object temp ;
+                  synchronized (lock){
+                      while (list.size() == intMin){
+                          try {
+                              lock.wait();
+                          } catch (InterruptedException e) {
+                              e.printStackTrace();
+                          }
+                      }
+                      count.getAndIncrement();
+                      temp = list.removeFirst();
+                      System.out.println("元素"+temp+"被取出...");
+                      lock.notify();
+                  }
+                  return temp;
+              }
+
+              private static void initQueue(MyQueue queue){
+                  if(queue == null){
+                      return;
+                  }
+                  queue.put("a");
+                  queue.put("b");
+                  queue.put("c");
+                  queue.put("d");
+                  queue.put("e");
+                  System.out.println("当前元素个数:"+queue.list.size());
+              }
+
+              public static void main(String[] args) throws Exception{
+                  final MyQueue queue = new MyQueue();
+                  initQueue(queue);
+
+                  Thread t1 = new Thread(() -> {
+                      queue.put("h");
+                      queue.put("i");
+                  },"t1");
+
+                  Thread t2 = new Thread(()->{
+                      try {
+                          Thread.sleep(2000);
+                          queue.get();
+                          Thread.sleep(2000);
+                          queue.get();
+                      } catch (InterruptedException e) {
+                          e.printStackTrace();
+                      }
+                  },"t2");
+                  t1.start();
+                  Thread.sleep(1000);
+                  t2.start();
+              }
+          }
+          
+          这是一个队列, 队列的大小是5. 实现了取和放的统一. 放满了就堵塞, 等待队列元素被取再放. 取完了就堵塞, 等待队列放入再取. 
+          
+          其他注意事项：
+          1.wait() notify() 要在同步代码块或同步方法中使用, 意思就是 这些方法和锁是结合使用. 在调用前, 线程也必须获得该对象的对象级别锁.
+          2.wait方法是释放锁, notify方法是不释放锁.
+          3.notify方法每次唤醒wait等待状态的线程是随机的, 且每次只能唤醒一个. 
+          4.notifyAll每次唤醒wait等待状态的线程使之重新竞争获取对象锁, 优先级最高的线程会最先执行. 
+          5.处于wait状态时, 调用线程对象的interrupt()方法会出现InterruptException异常. 
+          
+          
+
