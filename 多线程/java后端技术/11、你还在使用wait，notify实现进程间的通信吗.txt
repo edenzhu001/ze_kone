@@ -116,3 +116,12 @@
         其他线程只能等待锁被释放后再次争抢，效果和使用synchronized关键字是一样的. 
         
    二、使用Lock对象实现线程间通信
+
+      在上一篇我们知道synchronized+wait/notify实现线程间的通信, 也就是等待/通知模式.
+      现在通过ReentrantLock、Condition对象实现的. 
+      
+      Condition的创建方式：
+        Lock lock = new ReentrantLock();
+        Condition condition = lock.newCondition();
+       
+       
