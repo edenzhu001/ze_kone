@@ -123,5 +123,144 @@
       Condition的创建方式：
         Lock lock = new ReentrantLock();
         Condition condition = lock.newCondition();
+      
+      这个类顾名思义就是条件Condition, 可以根据不同的条件来控制现成的等待和通知. 
+      之前使用synchronized+wait/notify的方式实现通信时, notify/notifyAll通知等待的线程是随机的.  Condition是灵活的, 可以有选择的通知线程.
+      
+      这是因为Synchronized是相当于整个Lock对象只有一个单一的Condition对象, 所有的线程都注册到这个对象上. 线程开始notifyAll的时候, 
+      需要通知所有等待的线程, 让他们开始竞争获得对象锁. 没有选择权, 这种方式比condititon的效率要高一些. 
        
-       
+      一个实例说明 Lock Condition如何实现线程间的通信：
+        import java.util.concurrent.locks.Condition;
+        import java.util.concurrent.locks.Lock;
+        import java.util.concurrent.locks.ReentrantLock;
+
+        public class ReentrantLockTest {
+
+            private Lock lock = new ReentrantLock();
+            private Condition condition = lock.newCondition();
+
+            private void await() {
+                try {
+                    lock.lock();
+                    System.out.println(Thread.currentThread().getName() + "开始等待...");
+                    condition.await();
+                    System.out.println(Thread.currentThread().getName() + "结束等待...");
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                } finally {
+                    lock.unlock();
+                }
+            }
+
+            private void signal() {
+                lock.lock();
+                System.out.println(Thread.currentThread().getName() + "发送通知...");
+                condition.signal();
+                lock.unlock();
+            }
+
+            public static void main(String[] args) throws InterruptedException {
+
+                ReentrantLockTest test = new ReentrantLockTest();
+                new Thread(()->{test.await();},"t1").start();
+                Thread.sleep(2000);
+                new Thread(()->{test.signal();},"t2").start();
+            }
+        }
+        结果：
+        t1开始等待...
+        t2发送通知...
+        t1结束等待...
+        解析：当线程t1执行到condition.await()时, 释放掉锁lock. 线程t2获取到锁, 运行完,condition.signal()方法,释放锁. 
+        t1获得唤醒,继续运行,直至结束。
+        
+        再看一个代码, 实现Lock对象和多个Condition实现等待/通知.
+            import java.util.concurrent.locks.Condition;
+            import java.util.concurrent.locks.Lock;
+            import java.util.concurrent.locks.ReentrantLock;
+
+            public class ReentrantLockTest {
+
+                private Lock lock = new ReentrantLock();
+                private Condition conditionA = lock.newCondition();
+
+                private Condition conditionB = lock.newCondition();
+
+                private void await(Condition condition) {
+                    try {
+                        lock.lock();
+                        System.out.println(Thread.currentThread().getName() + "开始等待...");
+                        condition.await();
+                        System.out.println(Thread.currentThread().getName() + "结束等待...");
+                    } catch (InterruptedException e) {
+                        e.printStackTrace();
+                    } finally {
+                        lock.unlock();
+                    }
+                }
+
+                private void signal(Condition condition) {
+                    lock.lock();
+                    System.out.println(Thread.currentThread().getName() + "发送通知...");
+                    condition.signal();
+                    lock.unlock();
+                }
+
+                public static void main(String[] args) throws InterruptedException {
+
+                    ReentrantLockTest test = new ReentrantLockTest();
+                    new Thread(() -> {
+                        test.await(test.conditionA);
+                    }, "t1_A").start();
+                    new Thread(() -> {
+                        test.await(test.conditionB);
+                    }, "t2_B").start();
+                    new Thread(() -> {
+                        test.signal(test.conditionA);
+                    }, "t3_A").start();
+                    Thread.sleep(5000);
+                    System.out.println("稍等5秒 再通知其他线程...");
+                    new Thread(() -> {
+                        test.signal(test.conditionB);
+                    }, "t4_B").start();
+                }
+            }
+            结果：
+                t1_A开始等待...
+                t2_B开始等待...
+                t3_A发送通知...
+                t1_A结束等待...
+                稍等5秒 再通知其他线程...
+                t4_B发送通知...
+                t2_B结束等待...
+            解析： 很显然, 当线程t1, t2等待时, conditionA在t3中执行了signal(), 所以执行condititonA.await()的t1就被唤醒, 结束等待.
+            5秒后, t4执行了conditionB的signal(), 所以conditionB.await()的t2就被唤醒了.
+            所以, 通过condition实现了分组通知, t3通知t1, t4通知t2. 另外还可以使用signalAll()通知该分组中所有等到的线程.
+            
+        三、其他概念
+
+        1.公平锁和非公平锁
+          公平锁就是表示线程获取锁的顺序是按照线程加锁的顺序来分配的, 先等待先获得, 公平的;
+          非公平锁就是抢占机制, 是随机获得锁, 并不是先来的一定能先得到锁.
+          
+          ReentrantLock提供了构造方法, 实现公平或非公平锁.
+          /**
+           * Creates an instance of {@code ReentrantLock} with the
+           * given fairness policy.
+           *
+           * @param fair {@code true} if this lock should use a fair ordering policy
+           */
+          public ReentrantLock(boolean fair) {
+              sync = fair ? new FairSync() : new NonfairSync();
+          }
+          True为公平锁, False为非公平锁.
+
+        2.其他方法
+          （1）getHoldCount()方法：查询当前线程保持此锁定的个数，也就是调用lock()的次数；
+
+          （2）getQueueLength()方法：返回正等待获取此锁定的线程估计数目；
+
+          （3）isFair()方法：判断是不是公平锁；
+          
+          
