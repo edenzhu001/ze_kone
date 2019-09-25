@@ -1,0 +1,63 @@
+计数器 这个之前没有接触过...今天来了解一下:
+两种常用的线程计数器CountDownLatch和循环屏障CyclicBarrier.
+
+一、倒计时CountDownLatch
+    非常实用的控制工具类, 称之为"倒计时". 它允许一个或多个线程【？？？】一直等待, 知道其他线程的操作执行完后再执行. 
+    
+    实例：集齐7龙珠 召唤神龙.7个人去找,都找到召唤.
+    import java.util.Random;
+    import java.util.concurrent.CountDownLatch;
+
+    public class CountDownLatchTest {
+
+        private static final int THREAD_COUNT_NUM = 7;
+        private static CountDownLatch countDownLatch = new CountDownLatch(THREAD_COUNT_NUM);
+
+        public static void main(String[] args) throws InterruptedException {
+            for (int i =1 ;i<= THREAD_COUNT_NUM;i++){
+                    int index = i;
+                    new Thread(() -> {
+
+                        try {
+                            Thread.sleep(new Random().nextInt(3000));
+                            System.out.println("第" + index + "个龙珠收集到");
+                        } catch (InterruptedException e) {
+                            e.printStackTrace();
+                        }
+                        //收集到了一颗 要通知
+                        countDownLatch.countDown();
+                    }).start();
+            }
+            countDownLatch.await();
+            System.out.println("7颗龙珠集齐...");
+        }
+    }
+    结果：
+    第5个龙珠收集到
+    第2个龙珠收集到
+    第7个龙珠收集到
+    第3个龙珠收集到
+    第1个龙珠收集到
+    第6个龙珠收集到
+    第4个龙珠收集到
+    7颗龙珠集齐...
+    解析： 显然, 在发起7个线程后, 主程序堵塞在countDownLatch.await(), 
+    直至7个线程都完成其任务,完成后都要调用countDownLatch.countDown()方法减数.
+    之后,再执行await()方法后的程序. 
+    注意：
+    (1)CountDownLatch构造函数, CountDownLatch countDownLatch = new CountDownLatch(7);
+      7表示需要等待执行完毕的线程数量.
+    (2)在每个线程执行完毕之后, 都需要执行 countDownLatch.countDown()方法, 不然计数器就不准确. 
+    (3)只有所有线程都执行完毕之后, 才会执行countDownLatch.await()之后的程序. 
+    (4)特别注意, countDownLatch.await() 堵塞的是主线程.
+    
+    拓展：
+    CountDownLatch也称之为闭锁. 可以称之为倒计时锁存器, 是一个同步辅助类.
+    闭锁(倒计时器)主要是用来保证完成某个任务的先决条件满足.
+    是一个同步工具类, 用来协调多个线程之间的的同步. 
+    这个工具通常是用来控制线程等待, 它可以让某一个线程等待直到倒计时结束, 再开始执行. 【？？？】
+    
+    
+    
+    
+  
