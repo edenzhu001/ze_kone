@@ -39,6 +39,283 @@
   注意：yield（）方法可以让当前处于运行状态的线程转入就绪状态
   
   三、JDK对线程池的支持
-  
+    
+    首先来看看Executor框架源码结构：
+    
+    1、基础
+    Executor接口：将任务提交和任务处理分割开来。
+      public interface Executor {
+      
+          void execute(Runnable command);//执行任务
+          
+      }
+    2、提供线程池生命周期的管理方法
+    ExecutorService接口：继承Executor接口
+    public interface ExecutorService extends Executor {
+
+        void shutdown();//顺利关闭线程池=在此过程中，执行已经提交的任务[正在执行和未开始执行]，停止接受新的任务。结束后，关闭ExecutorService。
+
+        List<Runnable> shutdownNow();//阻止等待任务启动并试图停止当前正在执行的任务，停止接收新的任务，返回处于等待任务列表
+
+        boolean isShutdown();//判断线程池是否已经关闭
+
+        boolean isTerminated();//如果关闭后所有任务都已完成，则返回true。
+                                  注意，除非首先调用shutdown或shutdownNow，否则isTerminated 永不为 true。Terminate:终止
+
+        boolean awaitTermination(long timeout, TimeUnit unit)
+            throws InterruptedException;//是一个阻塞方法(一直等待)，它必须等线程池状态为TERMINATED后才会结束自身或者到达设置阻塞时间才会结束自身。
+                                          如果此执行程序终止，则返回 true；如果终止前超时期满，则返回 false。
+                 比如应用场景为线程池的有效执行时间为20S，20S之后不管子任务有没有执行完毕，都要关闭线程池。
+                 ExecutorService es = Executors.newFixedThreadPool(10);
+                        es.execute(new Thread());//执行子线程任务
+                        try {
+                    es.shutdown();  
+                    if(!es.awaitTermination(20,TimeUnit.SECONDS)){//20S
+                       System.out.println(" 到达指定时间，还有线程没执行完，不再等待，关闭线程池!");
+                       es.shutdownNow();  
+                    }
+                  } catch (Throwable e) {
+                    // TODO Auto-generated catch block
+                    es.shutdownNow();
+                    e.printStackTrace();
+                  }
+                  
+                 与shutdown()方法结合使用时，尤其要注意的是shutdown()方法必须要在awaitTermination()方法之前调用，该方法才会生效。否则会造成死锁。
+
+        <T> Future<T> submit(Callable<T> task);//提供一个有返回值的任务提交执行方法。可以得到该任务是否正确结束。Future中的get方法在成功时会返回
+                                              该任务的结果，调用 Future 对象的 get() 方法会导致主线程阻塞。
+                  submit()方法是伪返回的==
+                  （回顾：即submit方法一执行，马上会产生Future类型的返回值，刚才提交的任务也许还在线程池的任务队列中排队）。
+                  那么这种情况下我们在submit方法返回的Future对象上调用get()方法来取出里面的List<Integer>时，get()方法所在的线程将会阻塞（Future类的get()方法时阻塞调用的），
+                  直到submit提交的任务在池中真正执行并且产生结果。
+
+                   应用场景：
+                    import java.util.concurrent.Callable;
+                    import java.util.concurrent.ExecutionException;
+                    import java.util.concurrent.Executors;
+                    import java.util.concurrent.ExecutorService;
+                    import java.util.concurrent.Future;
+
+                    public class MyCallable implements Callable<Integer> {
+                        private Integer number;
+
+                        public MyCallable(Integer number){
+                            this.number = number;
+                        }
+
+                        @Override
+                        public Integer call() throws Exception {
+                            int sum = 0;
+                            for (int x=0;x<number;x++){
+                                sum += x;
+                            }
+                            return sum;
+                        }
+
+                        public static void main(String[] args) throws ExecutionException, InterruptedException {
+                            //创建线程池
+                            ExecutorService pool = Executors.newFixedThreadPool(2);
+
+                            //调用线程来执行任务
+                            Future<Integer> f1 = pool.submit(new MyCallable(5));
+                            Future<Integer> f2 = pool.submit(new MyCallable(5));
+
+                            //get()
+                            System.out.println(f1.get());
+                            System.out.println(f2.get());
+                        }
+                    } 
+                   
+
+        <T> Future<T> submit(Runnable task, T result);//提交一个runnable任务用于执行，并返回一个表示该任务的Future的get方法在成功时
+                                                        将会返回该任务的结果。
+
+        Future<?> submit(Runnable task);//提交一个 Runnable 任务用于执行，并返回一个表示该任务的Future.
+                                          该Future 的 get 方法在成功完成时将会返回null。
+
+        <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks)
+            throws InterruptedException;//执行给定的任务，当所有任务完成时，返回保持任务状态和结果的Future列表。
+                                          返回列表的所有元素的Future.isDone()为true.
+
+        <T> List<Future<T>> invokeAll(Collection<? extends Callable<T>> tasks,
+                                      long timeout, TimeUnit unit)
+            throws InterruptedException;//在给定的时间内，执行给定的任务，当所有任务完成时，返回保持任务状态和结果的Future列表。
+                                          返回列表的所有元素的Future.isDone()为true.
+
+        <T> T invokeAny(Collection<? extends Callable<T>> tasks)
+            throws InterruptedException, ExecutionException;//执行给定的任务，某个任务已成功完成（也就是未抛出异常），
+                                                          则返回其结果。一旦正常或异常返回后，则取消尚未完成的任务。
+
+        <T> T invokeAny(Collection<? extends Callable<T>> tasks,
+                        long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException;
+                        //执行给定的任务，如果在给定的超时期满前某个任务已成功完成（也就是未抛出异常），
+                         则返回其结果。一旦正常或异常返回后，则取消尚未完成的任务。
+    }
+    
+    Future类：这个是ExecutorService中submit方法返回值。其中包含了任务执行的情况或是结果信息。
+    因为submit是伪返回【即submit方法一执行，马上会产生Future类型的返回值，刚才提交的任务也许还在线程池的任务队列中排队】
+    所以任务可能并未完成。
+      Future类源码：
+      package java.util.concurrent;
+
+      public interface Future<V> {
+
+          boolean cancel(boolean mayInterruptIfRunning);
+                            //用于取消异步的任务，它传入一个boolean类型的参数，传入true会中断线程停止任务。
+                            而传入false则会让线程正常执行至完成，并返回false。cancel(false)不终止任务，那它有什么意义？
+                            查阅资料得知：
+                            cancel(false)只能取消未开始的任务，也就是在队列中等待执行的任务。若任务已经开始，则任其执行完毕。
+                            当创建了Future实例，任务可能有以下三种状态：
+
+                            等待状态=此时调用cancel()方法不管传入true还是false都会标记为取消，任务依然保存在任务队列中，但当轮到此任务运行时会直接跳过。
+                            完成状态=此时cancel()不会起任何作用，因为任务已经完成了。
+                            运行中=此时传入true会中断正在执行的任务，传入false则不会中断。
+                                                          
+
+          boolean isCancelled();//任务是否已经取消，任务正常完成前将其取消，则返回 true
+
+          boolean isDone();//任务是否已经完成。需要注意的是如果任务正常终止、异常或取消，都将返回true.
+
+          V get() throws InterruptedException, ExecutionException;//获取任务处理方法的返回值，注意它是线程阻塞的。
+
+          V get(long timeout, TimeUnit unit)
+              throws InterruptedException, ExecutionException, TimeoutException;
+              //get()是线程阻塞的。要等待该线程执行完对应的任务,才会有返回值。所以该方法设置了超时时间， 如果计算超时，将抛出TimeoutException。
+      }
+
+    
+    3、提供默认实现
+    AbstractExecutorService类实现ExecutorService接口。暂不做分析。
+    
+    4、最常用的线程池
+    ThreadPoolExecutor类继承AbstractExecutorService类。
+    当使用Executor框架时，Executors类是常用的。提供了很多的线程池的初始化方法，返回的对象都是ThreadPoolExecutor对象。
+    Executors中常用的方法
+    newFixedThreadPoo()：该方法返回一个固定线程数量的线程池；
+    newSingleThreadExecutor()：该方法返回一个只有一个现成的线程池；
+    newCachedThreadPool()：返回一个可以根据实际情况调整线程数量的线程池；
+    newSingleThreadScheduledExecutor()：该方法和newSingleThreadExecutor的区别是给定了时间执行某任务的功能，可以进行定时执行等；
+    newScheduledThreadPool()：在4的基础上可以指定线程数量。
+    挑一个查看源码：
+    public static ExecutorService newFixedThreadPool(int nThreads, ThreadFactory threadFactory) {
+        return new ThreadPoolExecutor(nThreads, nThreads,
+                                      0L, TimeUnit.MILLISECONDS,
+                                      new LinkedBlockingQueue<Runnable>(),
+                                      threadFactory);
+    }
+    可以看到方法实现里，是调用的ThreadPoolExecutor的构造方法。
+    
+    我们现在来看看ThreadPoolExecutor类的源码：
+    public class ThreadPoolExecutor extends AbstractExecutorService {
+      
+              //int 是4个字节，也就是32位（注：一个字节等于8位）,记录线程池状态和线程数量（总共32位，前三位表示线程池状态，后29位表示线程数量）
+              int 的范围是 -2^31——2^31-1，即-2147483648——2147483647
+      private final AtomicInteger ctl = new AtomicInteger (ctlOf(RUNNING,0));
+              //线程数量统计位数29 （ Integer.SIZE=32，32-3） 
+      private static final int COUNT_BITS = Integer.SIZE - 3;//值为29
+              //容量 000 11111111111111111111111111111 最大数量
+      private static final int CAPACITY  = (1 << COUNT_BITS) -1 ;
+
+              //runState is stored in the high-order bits
+              //运行中 111 00000 00000 00000 00000 0000 00000
+      private static final int RUNNING = -1 << COUNT_BITS;//位运算需要开一节了解.
+              //关闭 000 00000000000000000000000000000
+      private static final int SHUTDOWN = 0 << COUNT_BITS;
+              //停止 001 00000000000000000000000000000
+      private static final int STOP = 1 << COUNT_BITS;
+              //整理 010 00000000000000000000000000000
+      private static final int TIDYING = 2 <<  COUNT_BITS;
+              //终止 011 00000000000000000000000000000
+      private static final int TERMINATED = 3 << COUNT_BITS;
+      
+       // Packing and unpacking ctl
+      private static int runStateOf(int c)     { return c & ~CAPACITY; }
+      private static int workerCountOf(int c)  { return c & CAPACITY; }
+      private static int ctlOf(int rs, int wc) { return rs | wc; }
+    
+      ctl是线程池的控制状态, AtomicInteger类型。 workCOunt是线程数量，runState是线程运行状态。（总共32位，前三位表示线程池状态，后29位表示线程数量）
+      这里线程池的最大值为2^29-1，大约500万左右。
+      线程池5种状态：
+      RUNNIN(运行:111)：接收新的任务并继续处理阻塞队列中的任务
+      SHUTDOWN(关闭:000)：不接收新的任务但会继续处理阻塞队列中的任务
+      STOP(停止:001)：不接收新的任务, 不再执行阻塞队列中的任务, 中断正在执行的任务
+      TIDYING(整理:010)：所有任务都执行完（包含阻塞队列里面任务）当前线程池活动线程为0，将要调用terminated方法
+      TERMINATED(终止:011)：钩子方法执行完毕
+      状态转换：
+      RUNNING -> SHUTDOWN：显式调用shutdown()方法，或者隐式调用了finalize(),它里面调用了shutdown（）方法。
+      RUNNING or SHUTDOWN)-> STOP：显式 shutdownNow()方法
+      SHUTDOWN -> TIDYING：当线程池和任务队列都为空的时候
+      STOP -> TIDYING：当线程池为空的时候
+      TIDYING -> TERMINATED：当 terminated() hook 方法执行完成时候
+      
+      状态流转：从创建到终止，线程池每个阶段的工作都不一样。
+      新建线程池时，它的状态为RUNNING。此时它会不断地接收并处理外部任务，当处理不过来的时候，会把任务放在任务阻塞队列中。
+      之后，可能会调用shutdown()来关闭线程池，这时状态由RUNNING->SHUTDOWN，开始拒绝从外部接收任务，但是会继续处理完阻塞队列中的任务。
+      也有可能是，调用shutdownNow()来立刻停止线程池，此时状态由RUNNING->STOP，然后它会中断正在处理的任务，迅速排空任务阻塞队列中的任务，
+      并状态由STOP->TIDYING，处于该状态的线程池就需要执行terminated()来做相关扫尾工作，执行完这个方法后，线程池的状态TIDYING->TERMINATED,
+      表示线程池终止。
+      
+      //设置线程数量的线程池
+      public static ExecutorService  newFixedThreadPool(int nThreads){
+          return new ThreadPoolExecutor(nThreads,nThreads,
+          0L,TimeUnit.MILLISECONDS,
+          new LinkedBlockingQueue<Runnable>());
+        }
+        
+      //弹性线程池，对新的任务，如果没有空闲线程，线程池就会立即创建新线程。
+      public static ExecutorService  newCachedThreadPool(){
+        return new ThreadPoolExecutor(0,Integer.MAX_VALUE,
+        60L,TimeUnit.SECONDS,
+        new SynchronousQueue<Runnable>());
+        }
+        
+      //单个worker线程的线程池
+      public static ExecutorService  newSingleThreadPool(){
+          return new ThreadPoolExecutor(1,1,
+          0L,TimeUnit.MILLISECONDS,
+          new LinkedBlockingQueue<Runnable>());
+          }
+          
+       //真正的构造方法ThreadPoolExecutor
+       public ThreadPoolExecutor(int corePoolSize,                     //指定核心线程数量
+                              int maximumPoolSize,                     //指定最大线程数量
+                              long keepAliveTime,             //非核心线程空闲时的存活时间，该参数只有在当前线程数量 > corePoolSize情况下才有用；    
+                              TimeUnit unit,                                   //时间单位      
+                               BlockingQueue<Runnable> workQueue,              //阻塞队列
+                               ThreadFactory threadFactory,                    //线程工厂
+                              RejectedExecutionHandler handler) {              //任务拒绝策略
+              if (corePoolSize < 0 ||
+                  maximumPoolSize <= 0 ||
+                  maximumPoolSize < corePoolSize ||
+                  keepAliveTime < 0)
+                  throw new IllegalArgumentException();
+              if (workQueue == null || threadFactory == null || handler == null)
+                  throw new NullPointerException();
+              this.corePoolSize = corePoolSize;
+              this.maximumPoolSize = maximumPoolSize;
+              this.workQueue = workQueue;
+              this.keepAliveTime = unit.toNanos(keepAliveTime);
+              this.threadFactory = threadFactory;
+              this.handler = handler;
+      }
+      分析：
+      workQueue：工作阻塞队列，也就是线程不数量不够时，线程池接收的外部任务存放在这儿，等待有空闲线程来执行。
+          ArrayBlockingQueue基于数组的有界阻塞队列，FIFO。
+          LinkedBlockingQueue基于链表的阻塞队列，FIFO，吞吐量要优于ArrayBlockingQueue，不设置大小，最大长度为Integer.MAX_VALUE(2^31-1)
+          SynchronousQueue特殊的BlockingQueue，对其操作必须是放和取交替完成的，典型的生产者-消费者模型，
+          它不存储元素，每一次的插入必须要等另一个线程的移除操作完成。
+          
+      threadFactory：创建线程工厂，可以自定义线程工厂给线程池里的线程设置一个自定义线程名。
+      
+      handler：饱和策略(任务拒绝策略)，是指当线程池已满，并且没有空闲线程，这个时候不允许提交任务到线程池中。
+      有4种策略：
+      AbortPolicy：拒绝提交，直接抛出异常，也是默认的饱和策略；
+      CallerRunsPolicy：线程池还未关闭时，用调用者的线程执行任务；
+      DiscardPolicy：丢掉提交任务；
+      DiscardOldestPolicy：线程池还未关闭时，丢掉阻塞队列最久为处理的任务，并且执行当前任务。
+ 
+    
+
+    
   
   
