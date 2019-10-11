@@ -494,26 +494,55 @@ ThreadPoolExecutor类最基本的构造方法是
        // 1.我们可能使用一个初始化任务firstTask为null作为开始，然后只要线程池在运行，我们就要用getTask()获得任务
        // 如果getTask返回的也是null，队列中没有任务，则worker由于改变了线程池状态或参数配置而退出
        // 其它退出因为外部代码抛异常了，这会使得completedAbruptly为true，这会导致在processWorkerExit()方法中替换当前线程 TODO疑问
+       
+       // 2.在任何任务执行之前，都需要对worker加锁去防止在任务运行时，其他的线程中断操作。
+       // clearInterruptsForTaskRun保证除非线程池正在stopping，线程就不会被设置为中断标识
+       
+       // 3.每个任务执行前会调用beforeExecute()，其中可能抛出一个异常，这种情况下会导致线程die(跳出循环，且completeAbruptly==true)，没有执行任务
+       // 因为beforeExecute()的异常没有catch住，会上抛，跳出循环
+       //
+       // 4. 假定beforeExecute()正常完成，我们执行任务
+       //   汇总任何抛出的异常并发送给afterExecute(task, thrown)
+       //   因为我们不能在Runnable.run()方法中重新上抛Throwables，我们将Throwables包装到Errors上抛（会到线程的UncaughtExceptionHandler去处理）
+       //   任何上抛的异常都会导致线程die
        // 
-              final void runWorker(Worker w) {
+       // 5. 任务执行结束后，调用afterExecute()，也可能抛异常，也会导致线程die
+       //   根据JLS Sec 14.20，这个异常（finally中的异常）会生效      
+       
+           final void runWorker(Worker w) {
+              // 当前线程wt
               Thread wt = Thread.currentThread();
               Runnable task = w.firstTask;
               w.firstTask = null;
-              w.unlock(); // allow interrupts
+              w.unlock(); // allow interrupts 
+                          // new Worker()是state==-1，此处是调用Worker类的tryRelease()方法，将state置为0，
+                          // 而interruptIfStarted()中只有state>=0才允许调用中断
+                          
+              // 是否【突然完成】，如果是由于异常导致的进入finally，那么completedAbruptly==true就是突然完成的
               boolean completedAbruptly = true;
+              
               try {
+                  // ***********************************************************  worker循环获取业务任务
+                  // 当task不为null或者从阻塞队列获取的task不为null
                   while (task != null || (task = getTask()) != null) {
+                  
+                      // 上锁，为了在shutdown()时不终止正在运行的worker；不是为了防止并发执行任务，
+                      // state = 1
                       w.lock();
-                      // If pool is stopping, ensure thread is interrupted;
-                      // if not, ensure thread is not interrupted.  This
-                      // requires a recheck in second case to deal with
-                      // shutdownNow race while clearing interrupt
-                      if ((runStateAtLeast(ctl.get(), STOP) ||
-                           (Thread.interrupted() &&
-                            runStateAtLeast(ctl.get(), STOP))) &&
-                          !wt.isInterrupted())
+                      
+                      // clearInterruptsForTaskRun操作
+                      // 确保只有在线程stoping时，才会被设置中断标示，否则清除中断标示。不是stopping,则清除中断标识。
+                      // 1.如果线程池状态>=stop(001)，且当前线程没有设置中断状态，可以执行wt.interrupt()
+                      // 2.如果一开始判断线程池状态<stop(001),或running或shutdown，但Thread.interrupted()为true，即线程已经被中断，
+                      // 又清除了中断标识，再次判断线程池的状态是否>=stop
+                      // 是，再次设置中断标志，wt.interrupt()
+                      // 否，不做操作，清除中断标识后继续后续步骤
+                      if ((runStateAtLeast(ctl.get(), STOP) || (Thread.interrupted() && runStateAtLeast(ctl.get(), STOP))) 
+                           && !wt.isInterrupted())
                           wt.interrupt();
+                          
                       try {
+                          //执行前
                           beforeExecute(wt, task);
                           Throwable thrown = null;
                           try {
@@ -525,20 +554,27 @@ ThreadPoolExecutor类最基本的构造方法是
                           } catch (Throwable x) {
                               thrown = x; throw new Error(x);
                           } finally {
-                              afterExecute(task, thrown);
+                              //执行后（子类实现）
+                              afterExecute(task, thrown);// 这里就考验catch和finally的执行顺序了，因为要以thrown为参数。
+                              因为是在catch中给thrown赋值。
                           }
                       } finally {
-                          task = null;
-                          w.completedTasks++;
-                          w.unlock();
+                          task = null; // task置为null
+                          w.completedTasks++; //完成任务数+1
+                          w.unlock(); //释放锁
                       }
                   }
-                  completedAbruptly = false;
+                  
+                  // ***********************************************************  worker循环获取业务任务结束
+                  completedAbruptly = false;  //【突然完成】为false
               } finally {
+                  //不管是否异常，都处理worker的退出
                   processWorkerExit(w, completedAbruptly);
               }
           }
       
+      这个runWorker()有点晕，先暂时不做深究了。继续下一个方法，在runWorker中重要的就是getTask()了。
+      谈谈getTask()。
 
           
       
