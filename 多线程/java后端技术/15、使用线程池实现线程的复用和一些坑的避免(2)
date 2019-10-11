@@ -342,6 +342,157 @@ ThreadPoolExecutor类最基本的构造方法是
       
       至此execute方法中的addWorker源码结束，主要是要理解代码的逻辑流程。
       
+     4、由上面可以看出，execute(Runnable command)和 boolean addWorker(Runnable firstTask, boolean core) 中用到了一个关键的类
+      Worker类，所以现在来详细看看这个类。
+      
+      Worker类本身既实现了Runnable，又继承了AbstractQueuedSynchronizer(简称AQS)，所以既是一个可行任务，又可以达到锁的效果
+      new Worker()
+      A:将AQS的state = -1，在runWorker()前不允许中断
+      B:待执行的任务会以参数传入，并赋予firstTask
+      C:用Worker本身这个Runnable创建Thread
+      
+      之所以Worker自己实现Runnable接口，并创建Thread，在firstTask外包一层，是因为要通过Worker控制中断，
+      而firstTask这个工作任务只是负责执行业务。
+      
+      Worker控制中断主要是以下方面：TODO疑问
+      (1)初始化AQS的状态为-1，此时是不允许中断interrupt()，只有在worker线程启动了，执行了runWorker(),将start=0,才能中断。
+          我自行理解：是中断不了。因为状态是-1，只有state>=0 才可以中断
+          中断不了体现在：
+          A:shutdown线程池时，会对每个worker tryLock()上锁, 而 Worker类这个AQS的的tryAcquire()方法是固定的将state从 0->1，
+          故初始状态state=-1时tryLock()失败，没法interrupt()
+          B:shutdownNow()线程池时，不用tryLock()上锁，但是调用worker.interruptIfStarted()终止worker，而这interruptIfStarted()也有state>0
+          才能interrupt的逻辑。
+      (2)为了防止某种情况下，在运行中的worker被中断，runWorker()每次运行时都会lock()上锁，而shutdown()这类可能会终止worker的操作需要
+      首先获取worker的锁，这样就防止了中断正在运行的线程。
+      
+      Worker实现的AQS为不可重入锁，为了是在获得worker锁的情况下再进入其它一些需要加锁的方法。
+      worker源码：
+      
+          // worker类大体上管理着运行线程 的中断状态和一些指标
+          // Worker类投机取巧继承了AbstractQueueSynchronizer来简化在执行任务时的获取、释放锁
+          // 这样防止了中断在运行中的任务，只会唤醒(中断)在等待从阻塞队列workeQueue中获取任务的线程
+          // 分析：
+          //    为什么不直接执行execute(command)提交的command，而要在外面包一层Worker呢？
+          //    主要是为了控制中断。
+          //    用什么控制？
+          //    用AQS锁，当运行时上锁，所以不能中断，ThreadPoolExecutor的shutdown()方法中断前都要获取到worker锁
+          //    只有在等待从阻塞队列workQueue中获取任务getTask()才能中断。
+          
+                不可重入锁的原因： 是为了保证线程在执行任务时不会正常中断。
+          //    Worker实现了一个简单的不可重入的互斥锁，而不是用的ReentrantLock可重入锁。 TODO疑问
+          //    因为我们不想让在调用比如setCorePoolSize()这种线程池控制方法时可以再次获取锁(重入)。TODO疑问
+          //  解释：
+          //  setCorePoolSize()时可能会interruptIdleWorkers(), 在对一个线程进行interrupt时 会要w.tryLock()。
+          //  如果可重入，就可能会在对线程池操作的方法中中断线程，类似的方法还有：
+          //   setMaximumPoolSize()
+          //   setKeppAliveTime()
+          //   allowCoreThreadTimeOut()
+          //   shutdown()
+          // * 此外，为了让线程真正开始后才可以中断，初始化lock状态为负值(-1)，在开始runWorker()时将state置为0，而state>=0才可以中断
+          // Worker继承了AQS，实现了Runnable，说明其既是一个可运行的任务，也是一把锁（不可重入）
+           private final class Worker extends AbstractQueuedSynchronizer
+            implements Runnable{
+            /**
+             * This class will never be serialized, but we provide a
+             * serialVersionUID to suppress a javac warning.
+             */
+            private static final long serialVersionUID = 6138294804551838833L;
+
+            final Thread thread;        //利用ThreadFactory和 Worker这个Runnable创建的线程对象,若工厂失败，则thread为null
+            
+            Runnable firstTask;         //初始化任务，可能为null
+            
+            volatile long completedTasks;     //完成的任务数
+
+            /**
+             * Creates with given first task and thread from ThreadFactory.
+             * @param firstTask the first task (null if none)
+             */
+            Worker(Runnable firstTask) {
+                //   设置AQS的同步状态private volatile int state，是一个计数器，大于0代表锁已经被获取
+                setState(-1); // inhibit interrupts until runWorker
+                              // 在调用runWorker()前，禁止interrupt中断，在interruptIfStarted()方法中会判断 getState()>=0
+                this.firstTask = firstTask;
+                //    创建线程对象 当前worker本身就是一个runnable任务，也就是不会用入参firstTask创建线程。因为Worker用来控制任务的中断，
+                //    firstTask就是简单用来执行业务。  在调用当前worker.run方法中调用firstTask.run方法。
+                this.thread = getThreadFactory().newThread(this);
+            }
+
+            /** Delegates main run loop to outer runWorker  *///重写runnable的run()方法。
+            public void run() {
+                runWorker(this);    //重点方法：runWorker()是ThreadPoolExecutor的方法
+            }
+
+            // Lock methods
+            //
+            // The value 0 represents the unlocked state. 0代表“没被锁定”状态
+            // The value 1 represents the locked state.  1代表“锁定”状态
+
+            // false表示是非锁定,true表示是锁定或初始化
+            protected boolean isHeldExclusively() {
+                return getState() != 0;
+            }
+
+            // 尝试获取锁
+            // 重写AQS的tryAcquire()，AQS本来就是让子类来实现的
+            protected boolean tryAcquire(int unused) {
+                //尝试一次将state从0设置为1，即“锁定”状态，但由于每次都是state 0->1，而不是+1，那么说明不可重入
+                //且state==-1时也不会获取到锁
+                if (compareAndSetState(0, 1)) {
+                    // 获取到锁，状态由0->1实现
+                    setExclusiveOwnerThread(Thread.currentThread());   ////设置exclusiveOwnerThread=当前线程
+                    return true;
+                }
+                return false;
+            }
+
+            // 尝试释放锁
+            // 不是state-1，而是直接置为0
+            protected boolean tryRelease(int unused) {
+                setExclusiveOwnerThread(null);
+                setState(0);
+                return true;
+            }
+
+            public void lock()        { acquire(1); }
+            public boolean tryLock()  { return tryAcquire(1); }
+            public void unlock()      { release(1); }
+            public boolean isLocked() { return isHeldExclusively(); }// true表示锁定或初始化，false表示非锁定
+
+            // 中断(如果运行)
+            // shutdownNow时会循环对worker线程执行
+            // 且不需要获取worker锁，即使在worker运行时也可以中断
+            void interruptIfStarted() {
+                Thread t;
+                //如果state>=0、t!=null、且t没有被中断，则可以中断该线程。证明了new Worker()时state==-1，说明不能中断
+                if (getState() >= 0 && (t = thread) != null && !t.isInterrupted()) {
+                    try {
+                        t.interrupt();
+                    } catch (SecurityException ignore) {
+                    }
+                }
+            }
+        }
+        
+        综合，Worker和Task的区别：
+        Worker是线程池中的线程，而Task虽然是runnable，但是没有真正的执行，只是被worker调用了run()，才会在方法里执行task。
+       
+      【ThreadPoolExecutor】中有【execute()】 其中有把firstTask添加到Workers【addWork()】,我们又介绍了【Worker】内部类。
+      接下来，看一下runWorker() .
+      
+    5、runWorker(Worker w) ,这个方法是ThreadPoolExecutor的方法
+       方法实现流程：
+       A:Worker线程启动后[worker.run()]，这个方法里就是调用runWorker(this)；
+       B: 执行任务之前，首先worker.unlock(),将AQS的state置为0，此时允许中断当前的worker线程，中断也就不会再执行业务；
+       C:开始执行firstTask，调用task.run()，在执行业务任务之前会上锁worker.lock(),在任务完成后会解锁，为了防止在任务运行过程中被线程池一些中断操作中断；
+       D:在任务执行前后，可以根据业务场景定义beforeExecute() 和 afterExecute()方法
+       E:无论是beforeExecute()、afterExecute()和task.run()发生异常上抛，都会导致worker线程终止，进入processWorkerExit()处理worker退出流程
+       F:如果正常执行完当前task后，会通过getTask()从阻塞队列中获取新的任务，当队列中没有任务，且获取任务超时，那么当前worker也会进入退出流程
+       
+      
+
+          
+      
       
       
     
