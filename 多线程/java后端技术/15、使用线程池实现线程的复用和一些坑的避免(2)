@@ -489,6 +489,55 @@ ThreadPoolExecutor类最基本的构造方法是
        E:无论是beforeExecute()、afterExecute()和task.run()发生异常上抛，都会导致worker线程终止，进入processWorkerExit()处理worker退出流程
        F:如果正常执行完当前task后，会通过getTask()从阻塞队列中获取新的任务，当队列中没有任务，且获取任务超时，那么当前worker也会进入退出流程
        
+       源码：
+       // Worker对象 重复的从队列中获取任务并执行，同时应对一些问题：
+       // 1.我们可能使用一个初始化任务firstTask为null作为开始，然后只要线程池在运行，我们就要用getTask()获得任务
+       // 如果getTask返回的也是null，队列中没有任务，则worker由于改变了线程池状态或参数配置而退出
+       // 其它退出因为外部代码抛异常了，这会使得completedAbruptly为true，这会导致在processWorkerExit()方法中替换当前线程 TODO疑问
+       // 
+              final void runWorker(Worker w) {
+              Thread wt = Thread.currentThread();
+              Runnable task = w.firstTask;
+              w.firstTask = null;
+              w.unlock(); // allow interrupts
+              boolean completedAbruptly = true;
+              try {
+                  while (task != null || (task = getTask()) != null) {
+                      w.lock();
+                      // If pool is stopping, ensure thread is interrupted;
+                      // if not, ensure thread is not interrupted.  This
+                      // requires a recheck in second case to deal with
+                      // shutdownNow race while clearing interrupt
+                      if ((runStateAtLeast(ctl.get(), STOP) ||
+                           (Thread.interrupted() &&
+                            runStateAtLeast(ctl.get(), STOP))) &&
+                          !wt.isInterrupted())
+                          wt.interrupt();
+                      try {
+                          beforeExecute(wt, task);
+                          Throwable thrown = null;
+                          try {
+                              task.run();
+                          } catch (RuntimeException x) {
+                              thrown = x; throw x;
+                          } catch (Error x) {
+                              thrown = x; throw x;
+                          } catch (Throwable x) {
+                              thrown = x; throw new Error(x);
+                          } finally {
+                              afterExecute(task, thrown);
+                          }
+                      } finally {
+                          task = null;
+                          w.completedTasks++;
+                          w.unlock();
+                      }
+                  }
+                  completedAbruptly = false;
+              } finally {
+                  processWorkerExit(w, completedAbruptly);
+              }
+          }
       
 
           
