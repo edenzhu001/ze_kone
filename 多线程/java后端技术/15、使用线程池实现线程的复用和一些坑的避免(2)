@@ -664,9 +664,86 @@ ThreadPoolExecutor类最基本的构造方法是
           
       接下来，最后一个方法吧。worker线程退出处理。
       
-      7、processWorkerExit()  --  worker线程退出
-          
+      7、processWorkerExit(Worker w, boolean completedAbruptly)  --  worker线程退出
+        上面可以看到：在runWork()中 如果worker没有业务任务可以执行，则需要worker线程退出
+        方法名：processWorkerExit
+        参数：worker->要结束的worker任务
+             completedAbruptly->是否突然完成(是否因为异常退出)
+             
+        处理逻辑(执行流程)：
+        (1)第一步：worker数量-1
+          A:如果是突然终止，说明是task执行时异常情况导致，即run()方法执行时发生了异常，那么正在工作的worker线程数量需要-1
+          B:如果不是突然终止，说明是worker线程没有task可执行了了，不用-1，因为在getTask中已经-1了
+        (2)第二步：从workers Set中移除worker，删除时需要上锁mainLock
+        (3)第三步：tryTerminate()，在对线程池有负效益的操作时，都需要尝试终止线程池，大致逻辑：
+          判断线程池是否满足终止状态
+          A:如果状态满足，但是线程池还有线程，尝试对其发出中断响应，使其能进入退出流程
+          B:没有线程了，更新状态为tidying->terminated
+        (4)是否需要增加worker线程，如果线程池还没有完全终止，仍需要保持一点数量的线程
+          线程池的状态是running或shutdown
+          A:如果当前线程是突然终止的，addWorker()
+          B:如果当前线程不是突然终止的，但当前线程数量 < 要维护的线程数量，addWorker()
+          所以如果调用线程shutdown()，直到workQueue为空前，线程池都会维持corePoolSize个线程，然后逐个销毁这corePoolSize个线程
+       
+       上源码，上完去吃饭，先写上吧，有点坚持不住了。
+       
+           private void processWorkerExit(Worker w, boolean completedAbruptly) {
+           
+               // 1、worker数量-1
+               // 如果是突然终止，说明是task执行时异常情况导致，即run()方法执行时发生了异常，那么正在工作的worker线程数量需要-1
+               // 如果不是突然终止，说明是worker线程没有task可执行了，不用-1，因为已经在getTask()方法中-1了
+              if (completedAbruptly) // If abrupt, then workerCount wasn't adjusted
+                  decrementWorkerCount();
+              
+               /**
+               * 2、从Workers Set中移除worker
+               */
+              final ReentrantLock mainLock = this.mainLock;
+              mainLock.lock();
+              try {
+                  completedTaskCount += w.completedTasks;
+                  workers.remove(w);
+              } finally {
+                  mainLock.unlock();
+              }
+
+               /**
+               * 3、在对线程池有负效益的操作时，都需要“尝试终止”线程池
+               * 主要是判断线程池是否满足终止的状态
+               * 如果状态满足，但还有线程池还有线程，尝试对其发出中断响应，使其能进入退出流程
+               * 没有线程了，更新状态为tidying->terminated
+              tryTerminate();
         
+              /**
+               * 4、是否需要增加worker线程
+               * 线程池状态是running 或 shutdown
+               * 如果当前线程是突然终止的，addWorker()
+               * 如果当前线程不是突然终止的，但当前线程数量 < 要维护的线程数量，addWorker()
+               * 故如果调用线程池shutdown()，直到workQueue为空前，线程池都会维持corePoolSize个线程，然后再逐渐销毁这corePoolSize个线程
+               */
+              int c = ctl.get();
+              
+              //如果状态是running、shutdown，即tryTerminate()没有成功终止线程池，尝试再添加一个worker
+              if (runStateLessThan(c, STOP)) {
+              
+                  //不是突然完成的，即没有task任务可以获取而完成的，计算min，并根据当前worker数量判断是否需要addWorker()
+                  if (!completedAbruptly) {
+                      int min = allowCoreThreadTimeOut ? 0 : corePoolSize;//allowCoreThreadTimeOut默认为false，即min默认为corePoolSize
+                      
+                      //如果min为0，即不需要维持核心线程数量，且workQueue不为空，至少保持一个线程
+                      if (min == 0 && ! workQueue.isEmpty())
+                          min = 1;
+                          
+                      //如果线程数量大于最少数量，直接返回，否则下面至少要addWorker一个
+                      if (workerCountOf(c) >= min)
+                          return; // replacement not needed
+                  }
+                  
+                   //添加一个没有firstTask的worker
+                   //只要worker是completedAbruptly突然终止的，或者线程数量小于要维护的数量，就新添一个worker线程，即使是shutdown状态
+                  addWorker(null, false);
+              }
+          }
           
       
       
