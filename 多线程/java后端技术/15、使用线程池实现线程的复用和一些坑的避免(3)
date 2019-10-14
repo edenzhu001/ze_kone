@@ -3,4 +3,363 @@
     
     (1)说的是线程池的基本原理，基本概念。(2)说的是线程池的execute()相关源码。这一节说的是线程池的终止。大兄弟，且行且珍惜。苦笑。
     
+    好 开始...
+    终止线程池主要有2个方法：shutdown() 和shutdownNow()
+    shutdown后线程池的状态由running->shutdown状态，此时不再接受新任务，但会处理完阻塞队列中的待处理任务和正在运行处理的任务；
+    shutdownNow后线程池将变成stop状态，此时不再接收新任务，不再处理阻塞在队列中的任务，还会尝试中断正在处理中的工作线程
     
+    先从shutdown开始吧...
+    
+   一、shutdown()温柔的终止线程池
+      执行流程：
+      1.上锁，mainLock是线程池的主锁，是可重入锁。当要操作workers Set 这个保持线程的HashSet时，需要首先获取到mainLock锁，还有当要处理largestPoolSize、
+      completedTaskCount这类统计数据时需要先获取mainLock
+      2.判断调用者是否有权限shutdown线程池
+      3.使用CAS操作将线程池状态置为shutdown，shutdown之后将不再接收新任务
+      4.中断所有空闲线程 interruptIdleWorkers()
+      5.onShutdown ScheduledThreadPoolExecutor中实现了这个方法，可以在shutdown时做一些处理
+      6.解锁
+      7.尝试终止线程池 tryTerminate()
+      
+      上源码：
+          // 开始一个有序的关闭，在关闭中，之前提交的任务会被执行(包含正在执行的和在阻塞队列中的),但新任务会被拒绝
+          // 如果线程已经被shutdown，调用次方法不会有附加效应
+          
+          // 当前方法不会等待之前提交的任务执行结束，可以使用awaitTermination()
+          public void shutdown() {
+              final ReentrantLock mainLock = this.mainLock;
+              
+              mainLock.lock();//上锁
+              
+              try {
+                  // 判断调用者是否有权限shutdown线程池
+                  checkShutdownAccess();
+                  
+                  //CAS+循环设置线程池状态为shutdown
+                  advanceRunState(SHUTDOWN);
+                  
+                  // 中断所有空闲线程
+                  interruptIdleWorkers();
+                  
+                  onShutdown(); // hook for ScheduledThreadPoolExecutor
+                                 // 这里是定时线程池 处理完后 hook钩子 可以处理其他事情
+              } finally {
+                  // 解锁   
+                  mainLock.unlock();
+              }
+              
+              // 在尝试终止线程池   shutdown之后 就要终止线程池，所以需要尝试终止方法
+              tryTerminate();
+          }
+          
+          看到shutdown方法的处理步骤：(1)判断调用者是否有权限shutdown(2)上主锁(3)中断空闲线程(4)hook钩子处理方法(5)解锁(6)尝试终止线程池
+          
+          那么，空闲线程是怎么样的？interruptIdleWorkers()是怎么样中断空闲线程的？
+            
+          中断所有空闲线程：
+          private void interruptIdleWorkers() {
+              interruptIdleWorkers(false);
+          }
+            
+          中断空闲线程方法：
+          // 中断在等待任务的线程(没有上锁的)，中断唤醒后，可以判断线程池是否变化来决定是否继续
+          //
+          // onlyOne如果为true，最多interrupt一个worker
+          // 只有当终止已经开始，但线程池还有worker线程时，tryTerminate()方法会做调用onlyOne为true的调用
+          // （终止流程已经开始指的是：shutdown状态 且 workQueue为空，或者 stop状态）
+          //
+          // 在这种情况下，最多有一个worker被中断，为了传播shutdown信号，以免所有的线程都在等待[TODO疑问]
+          //
+          // 为保证线程池最终能终止，这个操作总是中断一个 空闲worker
+          // 而shutdown()中断所有空闲worker，来保证空闲线程及时退出
+          
+          private void interruptIdleWorkers(boolean onlyOne) {
+              final ReentrantLock mainLock = this.mainLock;
+              
+              // 上锁
+              mainLock.lock();
+              try {
+                  for (Worker w : workers) {
+                      Thread t = w.thread;
+                      if (!t.isInterrupted() && w.tryLock()) { // 该worker是否已经被终止；获取worker本身AQS锁
+                          try {
+                              t.interrupt();
+                          } catch (SecurityException ignore) {
+                          } finally {
+                              w.unlock();
+                          }
+                      }
+                      if (onlyOne)
+                          break;
+                  }
+              } finally {
+                  mainLock.unlock();//解锁
+              }
+          }
+          分析：
+          interruptIdleWorkers()首先会获取mainLock锁，因为要迭代workers Set，在中断每个worker前，需要做2个判断：
+          1.线程是否已经被中断，是就什么都不做
+          2.worker.tryLock()是否成功
+          第二个判断比较重要，因为Worker类除了实现了可执行的runnable，即继承了AQS，本身也是一把锁，具体可见ThreadPoolExecutor内部类Worker解析
+          tryLock()调用了Worker自身实现的tryAcquire()方法，这也是AQS规定子类需要实现的尝试获取锁的方法
+            protected boolean tryAcquire(int unused) {
+                if (compareAndSetState(0, 1)) { 
+                    setExclusiveOwnerThread(Thread.currentThread()); 
+                    return true;
+                }
+                return false;
+            }
+          tryAcquire()先尝试将AQS的state从 0->1，返回true则表示上锁成功，并设置当前线程为锁的拥有者
+          可以看到compareAndSetState(0, 1)只尝试了一次获取锁，且不是每次state+1，而是0-->1，说明锁不是可重入的。
+          ThreadPoolExecutor中的主锁mainLock是可重入锁，而worker的AQS锁是不可重入锁。
+          
+          但是为什么要worker.tryLock()获取worker的AQS锁呢？
+          这就是要想到为什么worker要继承Runnable接口，以及AQS。因为worker这runanble是用来控制线程中断的。AQS是不可入锁，用来处理并发的。
+          由于 worker的价值之一：控制线程中断
+          
+          在runWorker()方法中获取到task，task.run()之前都需要w.tryLock()上锁，运行结束后解锁。即正在运行任务的工作线程都是上了worker锁的。
+          所以在shutdown()中，必须要先获取到worker锁，即这个任务是已经执行完成的任务，才可以shutdown。
+            final void runWorker(Worker w) {
+              Thread wt = Thread.currentThread();
+              Runnable task = w.firstTask;
+              w.firstTask = null;
+              w.unlock(); // allow interrupts
+              boolean completedAbruptly = true;
+              try {
+                  while (task != null || (task = getTask()) != null) {
+                      w.lock();// -------------------------------------------------------上锁
+                      // If pool is stopping, ensure thread is interrupted;
+                      // if not, ensure thread is not interrupted.  This
+                      // requires a recheck in second case to deal with
+                      // shutdownNow race while clearing interrupt
+                      if ((runStateAtLeast(ctl.get(), STOP) ||
+                           (Thread.interrupted() &&
+                            runStateAtLeast(ctl.get(), STOP))) &&
+                          !wt.isInterrupted())
+                          wt.interrupt();
+                      try {
+                          beforeExecute(wt, task);
+                          Throwable thrown = null;
+                          try {
+                              task.run();
+                          } catch (RuntimeException x) {
+                              thrown = x; throw x;
+                          } catch (Error x) {
+                              thrown = x; throw x;
+                          } catch (Throwable x) {
+                              thrown = x; throw new Error(x);
+                          } finally {
+                              afterExecute(task, thrown);
+                          }
+                      } finally {
+                          task = null;
+                          w.completedTasks++;
+                          w.unlock();//--------------------------------------------------------解锁
+                      }
+                  }
+                  completedAbruptly = false;
+              } finally {
+                  processWorkerExit(w, completedAbruptly);
+              }
+          }
+      在interruptIdleWorkers()中断空闲线程之前需要先tryLock()获得worker锁，意味着正在运行的worker不能中断，因为worker.tryLock()失败，且锁是不可重入的
+      所以，shutdown()只有对能获得到worker锁的空闲线程(正在从workQueue中获得getTask()，此时worker没有加锁)发送中断信号。
+      
+      由此 可以将worker分为：
+       (1)空闲worker：正在从workQueue阻塞队列中获取任务getTask()的
+       (2)运行中的worker:正在task.run()执行任务的worker
+       
+       正阻塞在getTask()获取到任务的worker在被中断后，会跑出InterruptedException，不再阻塞获取任务
+       捕获中断异常后，将继续循环到getTask()最开始的判断线程池状态的逻辑，当线程池是shutdown状态，且workQueue为Empty时，return null，进行worker线程退出逻辑
+       
+       /**  要充分结合运行状态的线程池来理解，TODO
+       * 某些情况下，interruptIdleWorkers()时多个worker正在运行，不会对其发出中断信号，假设此时workQueue也不为空
+
+      * 那么当多个worker运行结束后，会到workQueue阻塞获取任务，获取到的执行任务，没获取到的，如果还是核心线程，会一直workQueue.take()阻塞住，线程无法终止，因为workQueue已经空了，且shutdown后不会接收新任务了
+
+      * 这就需要在shutdown()后，还可以发出中断信号
+
+      * Doug Lea大神巧妙的在所有可能导致线程池产终止的地方安插了tryTerminated()尝试线程池终止的逻辑，并在其中判断如果线程池已经进入终止流程，没有任务等待执行了，但线程池还有线程，中断唤醒一个空闲线程
+      **/
+      
+      shutdown后也调用了tryTerminated()方法(尝试终止线程池)   ，源码如下：
+      
+      tryTerminated()=>
+         //
+         //在以下情况下，将线程池变为TERMINATED终止状态：
+         //(1)shutdown且正在运行的worker和workQueue队列都empty
+         //(2)stop且没有正在运行的worker
+         //
+         //这个方法必须在任何可能导致线程池终止的地方被调用,如：
+         //减少worker数量
+         //shutdown时从queue中移除任务
+         //
+         //这个方法不是私有的，所以允许子类ScheduledThreadPoolExecutor调用，就是定时执行线程池也可用。
+         final void tryTerminate() {
+         
+            //这个for循环主要是和进入关闭线程池操作的CAS判断结合使用的。 worker的锁是AQS[-1.0.1]
+            // CAS解释：CAS(Compare And Swap)，即比较并交换 CAS(V,E,N)。是解决多线程并行情况下使用锁造成性能损耗的一种机制，CAS操作包含三个操作数——要更新的变量（V）、预期原值（E）和新值(N)。核心算法是如果V 值等于E 值，则将V 的值设为N 。若V 值和E 值不同，则说明已经有其他线程做了更新，则当前线程不做更新，直到V、E两个值相等，才更新V的值。
+           for (;;) {
+               int c = ctl.get();
+               
+               // 线程池是否需要终止，如果以下3种情况任一一种为true，return，不进行终止
+               // (1)还在运行状态
+               // (2)状态是TIDYING 或 TERMINATED 表示线程池已经终止过了
+               // (3)SHUTDOWN且workQueue不为空
+               // 
+               if (isRunning(c) ||
+                   runStateAtLeast(c, TIDYING) ||
+                   (runStateOf(c) == SHUTDOWN && ! workQueue.isEmpty()))
+                   return;
+                   
+               //
+               // 只有shutdown状态 且 workQueue为空，或者是stop状态  才能执行到这一步
+               // 如果此时线程池还有线程(正在运行任务，正在等待任务)
+               // 中断唤醒一个正在等待任务的空闲worker
+               // 唤醒后再次判断线程池状态，会return null，进入processWorkerExit()流程
+               //
+               if (workerCountOf(c) != 0) { // Eligible to terminate 存在线程，资格终止
+                   interruptIdleWorkers(ONLY_ONE); //中断workers集合中的空闲任务，参数为true，只中断一个
+                   return;
+               }
+               
+                /**
+                  * 如果状态是STOP 或 SHUTDOWN，workQueue也为空了，正在运行的worker也没有了，开始terminated终止
+                  */
+               final ReentrantLock mainLock = this.mainLock;
+               mainLock.lock();
+               try {
+                   // CAS：将线程池的ctl变成TIDYING(所有任务都被终止，workCount为0，是此状态时会调用terminated())，期间ctl有变化就会失败，
+                   // 会再次for循环
+                   if (ctl.compareAndSet(c, ctlOf(TIDYING, 0))) { // 线程池状态是个CAS 比较并交换
+                       try {
+                           terminated(); //需子类实现
+                       } finally {
+                           ctl.set(ctlOf(TERMINATED, 0));//将线程池的ctl变成TERMINATED
+                           termination.signalAll();//唤醒调用了 等待线程池终止的线程 awaitTermination() 
+                       }
+                       return;
+                   }
+               } finally {
+                   mainLock.unlock();
+               }
+               // else retry on failed CAS
+               // 如果上面的CAS判断false，再次循环
+           }
+       }
+       
+       tryTerminated()方法处理逻辑：
+       1.判断线程池是否需要进入终止流程(只有当shutdown+workQueue为空或stop状态，才需要)
+       2.判断线程池中是否还有线程，有则【interruptIdleWorkers(ONLY_ONE)】尝试中断一个空闲线程(正是这个逻辑可以再次发出中断信号，中断阻塞正在等待
+       获取任务的线程)
+       3.如果是shutdown，workQueue也为空了，正在运行的worker线程也没有了，开始terminated
+         会先上锁，将线程池置为tidying状态，之后调用需要子类实现的terminated，最后线程池置为terminated状态，并唤醒 所有等待线程终止这个condition的线程。
+         就是在线程池terminated之后，会有些要执行的线程方法。
+         
+      二、shutdownNow()-强硬的终止
+         差别大体和shutdown是相似的，区别：
+         1.将线程池状态更新为stop
+         2.调用interruptWorkers()中断所有线程，包括正在执行的线程
+         3.将workQueue中待处理的任务移到一个List中，并在方法最后返回，说明shutdownNow()后不会再处理workQueue中的任务
+         
+         shutdownNow方法源码：
+            // 尝试停止所有活动的正在执行的任务，停止等待任务，并返回正在等待被执行的任务列表
+            // 这个列表是从阻塞队列中排出(删除)的
+            // 
+            // 这个方法不用等到正在执行的任务结束，要等待线程池终止可使用awaitTernination()。 疑问：TODO
+            //
+            // 除了尽力尝试停止运行中的任务，没有任何保证
+            // 取消任务是通过Thread.interrupt()实现的，所以任何响应中断失败的任务可能永远不会结束。疑问：TODO
+            
+               public List<Runnable> shutdownNow() {
+                 List<Runnable> tasks;
+                 final ReentrantLock mainLock = this.mainLock;
+                 mainLock.lock(); // 上锁
+                 try {
+                     // 判断调用者是否有权限shutdown线程池
+                     checkShutdownAccess();
+                     
+                     // CAS+循环设置线程池的状态为STOp
+                     advanceRunState(STOP);
+                     
+                     // 中断所有线程，包括正在运行任务的
+                     interruptWorkers();
+                     
+                     tasks = drainQueue(); // 将workQueue中的元素放入一个List中并返回
+                 } finally {
+                     mainLock.unlock();// 解锁
+                 }
+                 
+                 // 尝试终止线程池
+                 tryTerminate();
+                 
+                 return tasks; // 返回workQueue中未执行的任务
+             }
+             
+          终止所有线程，interruptWorkers()
+          private void interruptWorkers() {
+              final ReentrantLock mainLock = this.mainLock;
+              mainLock.lock();
+              try {
+                  for (Worker w : workers)
+                      w.interruptIfStarted();
+              } finally {
+                  mainLock.unlock();
+              }
+          }
+          interruptWorkers比较简单，循环对所有的worker调用interruptIdStarted(),其中会判断worker的AQS是否大于0，即worker是否已经开始运行，再调用
+          Thread.interrupt()
+          需要注意到的是，对于运行中的线程调用调用Thread.interrupt()并不能保证线程被终止,task.run()内部可能捕获InterruptException，没有上抛，
+          导致线程一直无法结束。
+          
+      三、awaitTermination()  --  等待线程池终止
+         在发出一个shutdown请求后，在以下3种情况下发生之前，awaitTermination()都会被阻塞
+            1.所有任务完成执行
+            2.达到超时事件
+            3.当前线程被中断
+            
+            参数：timeout：超时时间，unit:超时时间时间的单位
+            返回：true：线程池终止，false：超过timeout指定时间
+            
+             public boolean awaitTermination(long timeout, TimeUnit unit)
+                 throws InterruptedException {
+                 long nanos = unit.toNanos(timeout);
+                 final ReentrantLock mainLock = this.mainLock;
+                 mainLock.lock();
+                 try {
+                     for (;;) {
+                         if (runStateAtLeast(ctl.get(), TERMINATED))
+                             return true;
+                         if (nanos <= 0)
+                             return false;
+                         nanos = termination.awaitNanos(nanos);
+                     }
+                 } finally {
+                     mainLock.unlock();
+                 }
+             }
+         awaitTermination()循环判断线程池是否terminated或是否已经超时，然后通过termination这个condition阻塞等待一段时间【termination.awaitNanos()】
+         termination.awaitNanos()是原理是通过LockSupport.parkNanos(this,nanosTimeout)实现阻塞等待
+         
+         阻塞等待过程中发生以下具体情况会解除阻塞(对上面3种情况的解释)：
+         1、如果发生了 termination.signalAll()（内部实现是 LockSupport.unpark()）会唤醒阻塞等待，且由于ThreadPoolExecutor只有在 tryTerminated()尝试终止线程池成功，将线程池更新为terminated状态后才会signalAll()，故awaitTermination()再次判断状态会return true退出
+
+         2、如果达到了超时时间 termination.awaitNanos() 也会返回，此时nano==0，再次循环判断return false，等待线程池终止失败
+
+         3、如果当前线程被 Thread.interrupt()，termination.awaitNanos()会上抛InterruptException，awaitTermination()继续上抛给调用线程，会以异常的形式解除阻塞
+         
+         故终止线程池并需要知道其是否终止可以用如下方式：
+         executorService.shutdown();
+         try{
+             while(!executorService.awaitTermination(500, TimeUnit.MILLISECONDS)) {
+                 LOGGER.debug("Waiting for terminate");
+             }
+         } 
+         catch (InterruptedException e) {
+             //中断处理
+         }
+             
+          
+         
+        
+          
