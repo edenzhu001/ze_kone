@@ -1,4 +1,4 @@
-这次将详细的介绍这个3个类。
+这次将详细的介绍这个ArrayList类。
 
 回忆一下：
   Collection接口下有List、Set接口。List接口下有ArrayList/Vector/LinkedList。
@@ -10,7 +10,6 @@
   Vector是线程安全的ArrayList。Stack继承自Vector。他们三者有相同的数据结构，
   都是数组实现的。
   
-  今天来探讨一下ArrayList Vector LinkedList的源码：
   探究集合从以下几点：思路方式
   (1)底层数据结构
   (2)增删改查方式
@@ -18,14 +17,14 @@
   (4)线程安全与否
   (5)是否允许为空 是否允许重复 是否有序
   
-  一、ArrayList
-    概述
-    arrayList是动态数组，动态就是大小是可变的。可以存储null元素。
-    
-    每个arrayList的初始容量为10。扩容机制：每次添加元素时，都会检查是否需要扩容，扩容操作是数据向新数组的重新拷贝。
-    所以，初始化指定容量大小，可以避免很多扩容拷贝问题和性能消耗。
-    
-    ArrayList是不同步的，线程不安全。防止意外对列表进行不同步的访问：List list = Collections.synchronizedList(new ArrayList<>(0));
+  arrayList是动态数组，动态就是大小是可变的。可以存储null元素。
+
+  每个arrayList的初始容量为10。扩容机制：每次添加元素时，都会检查是否需要扩容，扩容操作是数据向新数组的重新拷贝。
+  所以，初始化指定容量大小，可以避免很多扩容拷贝问题和性能消耗。
+
+  ArrayList是不同步的，线程不安全。防止意外对列表进行不同步的访问：List list = Collections.synchronizedList(new ArrayList<>(0));
+  
+  今天来探讨一下ArrayList的源码：
     
     
     
