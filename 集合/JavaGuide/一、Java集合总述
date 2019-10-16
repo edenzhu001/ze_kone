@@ -131,3 +131,90 @@
         
     还有一些集合小抄，下次继续
         
+       List
+        1.ArrayList
+        以数组实现，数组必须得设置大小。
+        节约空间。
+        长度默认为10,有容量限制，超出限制时，以50%的大小增加容量。
+        增大容量就是数组数组复制到新数组，用System.arraycopy()复制。
+        
+        通过下标访问元素 get(i) set(i,e)性能很高，随机访问，基本优势。
+        
+        如果按下标插入，删除 add(i,e) remove(i) remove(e) ，则要用System.arraycopy()复制移动部分受影响的元素，性能变差。
+        
+        越是前面的元素，修改时要移动的元素越多。直接在数组末尾加入元素－常用的add（e），删除最后一个元素则无影响。
+        
+        2.LinkedList
+        双向链表数据结构，无容量限制，但是它本身使用了更多的空间。它节点需要存储上一个节点地址，下一个节点地址，和本身的值。
+        并且操作也需要额外的链表指针操作。
+        
+        按下标访问元素 get(i) set(i,e) 要悲剧的部分遍历链表将指针移动到位(如果i > 数组大小的一半，会从末尾开始移动)。
+        
+        插入、删除元素时，修改前后节点的指针即可，不再需要复制移动。但还是要部分遍历链表的指针才能移动到下标所指的位置。
+        
+        只有在链表两头的操作 add()、addFirst()、removeLast()、iterator()上的remove能省掉指针的移动。
+        
+        3.CopyOnWriteArrayList
+        并发优化的ArrayList。
+        
+        Collections.synchronizedList（list），对所有操作用同一把锁来保证线程安全。
+        
+      Map【TODO，暂时还不明白】
+        1.HashMap
+        以 Entry[]数组 实现的 【哈希桶数组】，用Key的哈希值取模桶数组的大小可得到数组下标。
+        
+        插入元素时，如果两条Key落在同一个桶（比如哈希值1和17取模16后都属于第一个哈希桶），我们称之为【哈希冲突】。
+        
+        JDK的做法是链表法，Entry用一个next属性实现多个Entry以单向链表存放。查找哈希值为17的key时，先定位到哈希桶，
+        然后链表遍历桶里所有元素，逐个比较其Hash值然后key值。
+        
+        在JDK8里，新增默认为8的阈值，当一个桶里的Entry超过閥值，就不以单向链表而以红黑树来存放以加快Key的查找速度。
+
+        当然，最好还是桶里只有一个元素，不用去比较。所以默认当Entry数量达到桶数量的75%时，哈希冲突已比较严重，就会成倍扩容桶数组，
+        并重新分配所有原来的Entry。扩容成本不低，所以也最好有个预估值。
+
+        取模用与操作（hash & （arrayLength-1））会比较快，所以数组的大小永远是2的N次方， 你随便给一个初始值比如17会转为32。
+        默认第一次放入元素时的初始值是16。
+
+        iterator（）时顺着哈希桶数组来遍历，看起来是个乱序。
+        
+        2. LinkedHashMap 
+          扩展HashMap，每个Entry增加双向链表，号称是最占内存的数据结构。
+
+          支持iterator（）时按Entry的插入顺序来排序（如果设置accessOrder属性为true，则所有读写访问都排序）。
+
+          插入时，Entry把自己加到Header Entry的前面去。如果所有读写访问都要排序，还要把前后Entry的before/after拼接起来以在链表中删除掉自己，
+          所以此时读操作也是线程不安全的了。
+        
+        3.TreeMap 
+          以红黑树实现，红黑树又叫自平衡二叉树：
+
+          对于任一节点而言，其到叶节点的每一条路径都包含相同数目的黑结点。 上面的规定，使得树的层数不会差的太远，
+          使得所有操作的复杂度不超过 O（lgn），但也使得插入，修改时要复杂的左旋右旋来保持树的平衡。
+
+          支持iterator（）时按Key值排序，可按实现了Comparable接口的Key的升序排序，或由传入的Comparator控制。
+          可想象的，在树上插入/删除元素的代价一定比HashMap的大。
+
+          支持SortedMap接口，如firstKey（），lastKey（）取得最大最小的key，或sub（fromKey, toKey）, tailMap（fromKey）剪取Map的某一段。
+         
+        4.EnumMap
+          EnumMap的原理是，在构造函数里要传入枚举类，那它就构建一个与枚举的所有值等大的数组，按Enum. ordinal（）下标来访问数组。
+          性能与内存占用俱佳。
+
+          美中不足的是，因为要实现Map接口，而 V get（Object key）中key是Object而不是泛型K，所以安全起见，EnumMap每次访问都要先对Key进行类型判断，
+          在JMC里录得不低的采样命中频率。
+          
+        5.ConcurrentHashMap
+          并发优化的HashMap。
+          
+          在JDK5里的经典设计，默认16把写锁（可以设置更多），有效分散了阻塞的概率。数据结构为Segment[]，每个Segment一把锁。Segment里面才是哈希桶数组。Key先算出它在哪个Segment里，再去算它在哪个哈希桶里。
+
+          也没有读锁，因为put/remove动作是个原子动作（比如put的整个过程是一个对数组元素/Entry 指针的赋值操作），读操作不会看到一个更新动作的中间状态。
+
+          但在JDK8里，Segment[]的设计被抛弃了，改为精心设计的，只在需要锁的时候加锁。
+
+          支持ConcurrentMap接口，如putIfAbsent（key，value）与相反的replace（key，value）与以及实现CAS的replace（key, oldValue, newValue）。
+          
+        Set
+          所有Set几乎都是内部用一个Map来实现, 因为Map里的KeySet就是一个Set，而value是假值，全部使用同一个Object即可。
+          Set的特征也继承了那些内部的Map实现的特征。
