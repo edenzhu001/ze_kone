@@ -267,11 +267,7 @@
           }
 
           /**
-           * Returns the index of the last occurrence of the specified element
-           * in this list, or -1 if this list does not contain the element.
-           * More formally, returns the highest index <tt>i</tt> such that
-           * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
-           * or -1 if there is no such index.
+           * 返回此列表中指定元素的最后一次出现的索引，如果此列表不包含元素，则返回-1。.
            */
           public int lastIndexOf(Object o) {
               if (o == null) {
@@ -287,64 +283,43 @@
           }
 
           /**
-           * Returns a shallow copy of this <tt>ArrayList</tt> instance.  (The
-           * elements themselves are not copied.)
-           *
-           * @return a clone of this <tt>ArrayList</tt> instance
+           * 返回此ArrayList实例的浅拷贝。 （元素本身不被复制。）
            */
           public Object clone() {
               try {
                   ArrayList<?> v = (ArrayList<?>) super.clone();
+                  
+                  // Arrays.copyOf功能是实现数组的复制，返回复制后的数组。参数是被复制的数组和复制的长度
                   v.elementData = Arrays.copyOf(elementData, size);
                   v.modCount = 0;
                   return v;
               } catch (CloneNotSupportedException e) {
-                  // this shouldn't happen, since we are Cloneable
+                  // 这不应该发生，因为我们是可以克隆的
                   throw new InternalError(e);
               }
           }
 
           /**
-           * Returns an array containing all of the elements in this list
-           * in proper sequence (from first to last element).
+           * 以正确的顺序(从第一个到最后一个)返回一个包含列表中所有元素的数组
            *
-           * <p>The returned array will be "safe" in that no references to it are
-           * maintained by this list.  (In other words, this method must allocate
-           * a new array).  The caller is thus free to modify the returned array.
+           * 返回的数组将是安全的，列表不会保留对它的引用。因为返回的不是一个引用，而是返回的是新数组。
+           * 调用者可以自由的修改返回的数组。
            *
-           * <p>This method acts as bridge between array-based and collection-based
-           * APIs.
-           *
-           * @return an array containing all of the elements in this list in
-           *         proper sequence
+           * 此方法是 基于阵列 和 基于集合的API之间的桥梁
            */
           public Object[] toArray() {
               return Arrays.copyOf(elementData, size);
           }
 
           /**
-           * Returns an array containing all of the elements in this list in proper
-           * sequence (from first to last element); the runtime type of the returned
-           * array is that of the specified array.  If the list fits in the
-           * specified array, it is returned therein.  Otherwise, a new array is
-           * allocated with the runtime type of the specified array and the size of
-           * this list.
+           * 以正确的顺序返回一个包含此列表中所有元素的数组（从第一个到最后一个元素）;  
+           * 
+           * 如果当前传入的数组的长度 < 当前list的长度，就直接返回新数组。
+           *如果传入的数组长度大于list长度，list的元素复制进来了。数组后面的元素从size开始，都是 null 了
            *
-           * <p>If the list fits in the specified array with room to spare
-           * (i.e., the array has more elements than the list), the element in
-           * the array immediately following the end of the collection is set to
-           * <tt>null</tt>.  (This is useful in determining the length of the
-           * list <i>only</i> if the caller knows that the list does not contain
-           * any null elements.)
+           * （这仅在调用者知道列表不包含任何空元素的情况下才能确定列表的长度。）
            *
-           * @param a the array into which the elements of the list are to
-           *          be stored, if it is big enough; otherwise, a new array of the
-           *          same runtime type is allocated for this purpose.
-           * @return an array containing the elements of the list
-           * @throws ArrayStoreException if the runtime type of the specified array
-           *         is not a supertype of the runtime type of every element in
-           *         this list
-           * @throws NullPointerException if the specified array is null
+           * 一般在需要将List转成Array的时候，都是调用 Bean arr[] = list.toArray(new Bean[0]);
            */
           @SuppressWarnings("unchecked")
           public <T> T[] toArray(T[] a) {
@@ -365,11 +340,7 @@
           }
 
           /**
-           * Returns the element at the specified position in this list.
-           *
-           * @param  index index of the element to return
-           * @return the element at the specified position in this list
-           * @throws IndexOutOfBoundsException {@inheritDoc}
+           * 返回此列表中指定位置的元素。
            */
           public E get(int index) {
               rangeCheck(index);
@@ -378,47 +349,43 @@
           }
 
           /**
-           * Replaces the element at the specified position in this list with
-           * the specified element.
-           *
-           * @param index index of the element to replace
-           * @param element element to be stored at the specified position
-           * @return the element previously at the specified position
-           * @throws IndexOutOfBoundsException {@inheritDoc}
+           *  用指定的元素替换此列表中指定位置的元素。 
            */
           public E set(int index, E element) {
+              //对index进行界限检查
               rangeCheck(index);
 
               E oldValue = elementData(index);
               elementData[index] = element;
+              //返回原来在这个位置的元素
               return oldValue;
           }
 
           /**
-           * Appends the specified element to the end of this list.
+           *  将指定的元素追加到此列表的末尾。 
            *
            * @param e element to be appended to this list
            * @return <tt>true</tt> (as specified by {@link Collection#add})
            */
           public boolean add(E e) {
               ensureCapacityInternal(size + 1);  // Increments modCount!!
+              //这里看到ArrayList添加元素的实质就相当于为数组赋值
               elementData[size++] = e;
               return true;
           }
 
           /**
-           * Inserts the specified element at the specified position in this
-           * list. Shifts the element currently at that position (if any) and
-           * any subsequent elements to the right (adds one to their indices).
-           *
-           * @param index index at which the specified element is to be inserted
-           * @param element element to be inserted
-           * @throws IndexOutOfBoundsException {@inheritDoc}
+           * 在此列表中的指定位置插入指定的元素。 
+           * 先调用 rangeCheckForAdd 对index进行界限检查；然后调用 ensureCapacityInternal 方法保证capacity足够大；
+           * 再将从index开始之后的所有成员后移一个位置；将element插入index位置；最后size加1。
            */
           public void add(int index, E element) {
               rangeCheckForAdd(index);
 
               ensureCapacityInternal(size + 1);  // Increments modCount!!
+              
+              //arraycopy()这个实现数组之间复制的方法一定要看一下，下面就用到了arraycopy()方法实现数组自己复制自己。
+              // 把index这个位置给空出来
               System.arraycopy(elementData, index, elementData, index + 1,
                                size - index);
               elementData[index] = element;
@@ -426,13 +393,7 @@
           }
 
           /**
-           * Removes the element at the specified position in this list.
-           * Shifts any subsequent elements to the left (subtracts one from their
-           * indices).
-           *
-           * @param index the index of the element to be removed
-           * @return the element that was removed from the list
-           * @throws IndexOutOfBoundsException {@inheritDoc}
+           * 删除该列表中指定位置的元素。 将任何后续元素移动到左侧（从其索引中减去一个元素）。 
            */
           public E remove(int index) {
               rangeCheck(index);
@@ -445,22 +406,13 @@
                   System.arraycopy(elementData, index+1, elementData, index,
                                    numMoved);
               elementData[--size] = null; // clear to let GC do its work
-
+              // 从列表中删除的元素 
               return oldValue;
           }
 
           /**
-           * Removes the first occurrence of the specified element from this list,
-           * if it is present.  If the list does not contain the element, it is
-           * unchanged.  More formally, removes the element with the lowest index
-           * <tt>i</tt> such that
-           * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>
-           * (if such an element exists).  Returns <tt>true</tt> if this list
-           * contained the specified element (or equivalently, if this list
-           * changed as a result of the call).
-           *
-           * @param o element to be removed from this list, if present
-           * @return <tt>true</tt> if this list contained the specified element
+           * 从列表中删除指定元素的第一个出现（如果存在）。 如果列表不包含该元素，则它不会更改。
+           * 返回true，如果此列表包含指定的元素
            */
           public boolean remove(Object o) {
               if (o == null) {
@@ -480,8 +432,7 @@
           }
 
           /*
-           * Private remove method that skips bounds checking and does not
-           * return the value removed.
+           * 私有remove方法跳过了数组边界校验，不会返回被删除的元素。
            */
           private void fastRemove(int index) {
               modCount++;
@@ -493,31 +444,21 @@
           }
 
           /**
-           * Removes all of the elements from this list.  The list will
-           * be empty after this call returns.
+           * 从列表中删除所有元素。
            */
           public void clear() {
               modCount++;
 
               // clear to let GC do its work
               for (int i = 0; i < size; i++)
+                  // 把数组中所有的元素的值设为null
                   elementData[i] = null;
 
               size = 0;
           }
 
           /**
-           * Appends all of the elements in the specified collection to the end of
-           * this list, in the order that they are returned by the
-           * specified collection's Iterator.  The behavior of this operation is
-           * undefined if the specified collection is modified while the operation
-           * is in progress.  (This implies that the behavior of this call is
-           * undefined if the specified collection is this list, and this
-           * list is nonempty.)
-           *
-           * @param c collection containing elements to be added to this list
-           * @return <tt>true</tt> if this list changed as a result of the call
-           * @throws NullPointerException if the specified collection is null
+           * 按指定集合的Iterator返回的顺序将指定集合中的所有元素追加到此列表的末尾。
            */
           public boolean addAll(Collection<? extends E> c) {
               Object[] a = c.toArray();
