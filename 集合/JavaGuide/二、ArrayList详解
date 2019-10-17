@@ -27,7 +27,7 @@
   好，正式开始。加油啊，你还很菜啊。菜鸡。
   
   ArrayList简介
-    底层是动态数组，量动态增长。
+    底层是动态数组，容量动态增长。
     大家都知道既然是动态增长，那就是随着往ArrayList中添加元素，其容量也会自动增长。自动增长会带来数据向新数组的重新拷贝(每当向数组中添加元素时，都要去检查
     添加后的元素个数是否会超过当前数组的长度，如果超过，数据将进行扩容，以满足添加数据的需求，而每次数组容量的增长大约是其原容量的1.5倍);
     所以 ，代价其实是很高的。
@@ -110,7 +110,7 @@
           }
 
           /**
-           * 默认构造函数，默认长度的空数组
+           * 默认构造函数，默认大小的空数组
            */
           public ArrayList() {
               this.elementData = DEFAULTCAPACITY_EMPTY_ELEMENTDATA;
@@ -185,37 +185,41 @@
           private void ensureExplicitCapacity(int minCapacity) {
               modCount++;
 
-              // overflow-conscious code
+              // overflow-conscious code  入参设置最小容量 > 当前数组的长度，则扩容
               if (minCapacity - elementData.length > 0)
+                  //调用grow方法进行扩容，调用此方法代表已经开始扩容了
                   grow(minCapacity);
           }
 
           /**
-           * The maximum size of array to allocate.
-           * Some VMs reserve some header words in an array.
-           * Attempts to allocate larger arrays may result in
-           * OutOfMemoryError: Requested array size exceeds VM limit
+           *  要分配的最大数组大小
            */
           private static final int MAX_ARRAY_SIZE = Integer.MAX_VALUE - 8;
 
           /**
-           * Increases the capacity to ensure that it can hold at least the
-           * number of elements specified by the minimum capacity argument.
-           *
-           * @param minCapacity the desired minimum capacity
+           * 扩容核心方法
            */
           private void grow(int minCapacity) {
-              // overflow-conscious code
+              // 当前数组的长度，即旧容量
               int oldCapacity = elementData.length;
+              // 新容量
+              // 将oldCapacity 右移一位，其效果相当于oldCapacity /2，
+              // 我们知道位运算的速度远远快于整除运算，整句运算式的结果就是将新容量更新为旧容量的1.5倍，
               int newCapacity = oldCapacity + (oldCapacity >> 1);
+              
+              // 然后检查【新容量】 < 【入参需要最小容量】，若是，取入参需要最小容量为新容量。反正取大值。
               if (newCapacity - minCapacity < 0)
                   newCapacity = minCapacity;
-              if (newCapacity - MAX_ARRAY_SIZE > 0)
-                  newCapacity = hugeCapacity(minCapacity);
-              // minCapacity is usually close to size, so this is a win:
+              
+              //再检查【新容量】 是否超出了ArrayList所定义的最大容量，若超出，要么是Integer.Max_VALUE  -8 ，要么是Interger.MAX_VALUE
+              if (newCapacity - MAX_ARRAY_SIZE > 0) 
+                  newCapacity = hugeCapacity(minCapacity); 
+              
+              // 重新复制生成新数组，设置新容量
               elementData = Arrays.copyOf(elementData, newCapacity);
           }
-
+          
+          // 返回 Integer.MAX_VALUE 或 Integer.MAX_VALUE - 8；大容量
           private static int hugeCapacity(int minCapacity) {
               if (minCapacity < 0) // overflow
                   throw new OutOfMemoryError();
@@ -225,42 +229,29 @@
           }
 
           /**
-           * Returns the number of elements in this list.
-           *
-           * @return the number of elements in this list
+           * 返回数组中的元素数量
            */
           public int size() {
               return size;
           }
 
           /**
-           * Returns <tt>true</tt> if this list contains no elements.
-           *
-           * @return <tt>true</tt> if this list contains no elements
+           * 如果数组中没有元素 则返回true
            */
           public boolean isEmpty() {
               return size == 0;
           }
 
           /**
-           * Returns <tt>true</tt> if this list contains the specified element.
-           * More formally, returns <tt>true</tt> if and only if this list contains
-           * at least one element <tt>e</tt> such that
-           * <tt>(o==null&nbsp;?&nbsp;e==null&nbsp;:&nbsp;o.equals(e))</tt>.
-           *
-           * @param o element whose presence in this list is to be tested
-           * @return <tt>true</tt> if this list contains the specified element
+           * 如果此列表包含指定的元素，则返回true 。
            */
           public boolean contains(Object o) {
               return indexOf(o) >= 0;
           }
 
           /**
-           * Returns the index of the first occurrence of the specified element
-           * in this list, or -1 if this list does not contain the element.
-           * More formally, returns the lowest index <tt>i</tt> such that
-           * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>,
-           * or -1 if there is no such index.
+           * 返回此列表中指定元素的首次出现的索引，如果此列表不包含此元素，则为-1 。
+           * 循环数组去查
            */
           public int indexOf(Object o) {
               if (o == null) {
