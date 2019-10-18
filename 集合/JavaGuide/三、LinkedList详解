@@ -328,21 +328,40 @@
             }
 
              /**
-             * Returns {@code true} if this list contains the specified element.
-             * More formally, returns {@code true} if and only if this list contains
-             * at least one element {@code e} such that
-             * <tt>(o==null&nbsp;?&nbsp;e==null&nbsp;:&nbsp;o.equals(e))</tt>.
-             *
-             * @param o element whose presence in this list is to be tested
-             * @return {@code true} if this list contains the specified element
+             * 判断是否包含某元素 
+             * 里面就是调用元素在链表中的位置，不等于-1 则包含，等于-1则不包含。同样也是循环遍历是头部遍历
              */
             public boolean contains(Object o) {
                 return indexOf(o) != -1;
             }
             
-            88888888888888888888888888888888888888888888888888888888888888888888
+             /**
+             * 删除头部节点
+             */
+            public E pop() {
+                return removeFirst();
+            }
+            
             /**
-             * Unlinks non-null first node f.
+             * 删除头部节点，并返回节点值
+             */
+            public E remove() {
+                return removeFirst();
+            }
+            
+            /**
+             * 删除头部节点方法，若链表为空，则报错
+             */
+            public E removeFirst() {
+                final Node<E> f = first;
+                if (f == null)
+                    throw new NoSuchElementException();
+                return unlinkFirst(f);
+            }
+            
+            /**
+             * 断掉头部节点
+             * 取出第二节点，清空头部节点item next。first=第二节点。若第二节点为空，则last= null.将first节点的前驱节点置为空。
              */
             private E unlinkFirst(Node<E> f) {
                 // assert f == first && f != null;
@@ -359,9 +378,29 @@
                 modCount++;
                 return element;
             }
-
+            
             /**
-             * Unlinks non-null last node l.
+             * 删除尾节点
+             */
+            public E removeLast() {
+                final Node<E> l = last;
+                if (l == null)
+                    throw new NoSuchElementException();
+                return unlinkLast(l);
+            }
+            
+            /**
+             * 删除尾节点，没有则返回null
+             */
+            public E pollLast() {
+                final Node<E> l = last;
+                return (l == null) ? null : unlinkLast(l);
+            }
+           
+            /**
+             *  断掉尾部节点
+             * 获取倒数第二个节点，清空末节点的item prev . last = 倒数第二个节点. 若倒数第二个节点为null，则first=null，
+             * 否则倒数第二个节点的next=null
              */
             private E unlinkLast(Node<E> l) {
                 // assert l == last && l != null;
@@ -380,7 +419,31 @@
             }
 
             /**
-             * Unlinks non-null node x.
+             * 删除指定元素
+             * 和根据指定元素获取索引类似。也是判断是否为null,然后头部遍历，找到元素equals的值然后处理
+             */
+            public boolean remove(Object o) {
+                if (o == null) {
+                    for (Node<E> x = first; x != null; x = x.next) {
+                        if (x.item == null) {
+                            unlink(x);
+                            return true;
+                        }
+                    }
+                } else {
+                    for (Node<E> x = first; x != null; x = x.next) {
+                        if (o.equals(x.item)) {
+                            unlink(x);
+                            return true;
+                        }
+                    }
+                }
+                return false;
+            }
+
+            /**
+             * 断掉某个节点
+             * 获得该节点的前后节点 prev next,
              */
             E unlink(Node<E> x) {
                 // assert x != null;
@@ -423,31 +486,9 @@
 
             
 
-            /**
-             * Removes and returns the first element from this list.
-             *
-             * @return the first element from this list
-             * @throws NoSuchElementException if this list is empty
-             */
-            public E removeFirst() {
-                final Node<E> f = first;
-                if (f == null)
-                    throw new NoSuchElementException();
-                return unlinkFirst(f);
-            }
+            
 
-            /**
-             * Removes and returns the last element from this list.
-             *
-             * @return the last element from this list
-             * @throws NoSuchElementException if this list is empty
-             */
-            public E removeLast() {
-                final Node<E> l = last;
-                if (l == null)
-                    throw new NoSuchElementException();
-                return unlinkLast(l);
-            }
+            
 
             /**
              * Inserts the specified element at the beginning of this list.
@@ -471,37 +512,7 @@
                 return size;
             }
 
-            /**
-             * Removes the first occurrence of the specified element from this list,
-             * if it is present.  If this list does not contain the element, it is
-             * unchanged.  More formally, removes the element with the lowest index
-             * {@code i} such that
-             * <tt>(o==null&nbsp;?&nbsp;get(i)==null&nbsp;:&nbsp;o.equals(get(i)))</tt>
-             * (if such an element exists).  Returns {@code true} if this list
-             * contained the specified element (or equivalently, if this list
-             * changed as a result of the call).
-             *
-             * @param o element to be removed from this list, if present
-             * @return {@code true} if this list contained the specified element
-             */
-            public boolean remove(Object o) {
-                if (o == null) {
-                    for (Node<E> x = first; x != null; x = x.next) {
-                        if (x.item == null) {
-                            unlink(x);
-                            return true;
-                        }
-                    }
-                } else {
-                    for (Node<E> x = first; x != null; x = x.next) {
-                        if (o.equals(x.item)) {
-                            unlink(x);
-                            return true;
-                        }
-                    }
-                }
-                return false;
-            }
+            
 
             /**
              * Removes all of the elements from this list.
@@ -635,16 +646,7 @@
                 return (f == null) ? null : unlinkFirst(f);
             }
 
-            /**
-             * Retrieves and removes the head (first element) of this list.
-             *
-             * @return the head of this list
-             * @throws NoSuchElementException if this list is empty
-             * @since 1.5
-             */
-            public E remove() {
-                return removeFirst();
-            }
+            
 
             /**
              * Adds the specified element as the tail (last element) of this list.
@@ -699,18 +701,7 @@
                 return (f == null) ? null : unlinkFirst(f);
             }
 
-            /**
-             * Retrieves and removes the last element of this list,
-             * or returns {@code null} if this list is empty.
-             *
-             * @return the last element of this list, or {@code null} if
-             *     this list is empty
-             * @since 1.6
-             */
-            public E pollLast() {
-                final Node<E> l = last;
-                return (l == null) ? null : unlinkLast(l);
-            }
+            
 
             /**
              * Pushes an element onto the stack represented by this list.  In other
@@ -725,20 +716,7 @@
                 addFirst(e);
             }
 
-            /**
-             * Pops an element from the stack represented by this list.  In other
-             * words, removes and returns the first element of this list.
-             *
-             * <p>This method is equivalent to {@link #removeFirst()}.
-             *
-             * @return the element at the front of this list (which is the top
-             *         of the stack represented by this list)
-             * @throws NoSuchElementException if this list is empty
-             * @since 1.6
-             */
-            public E pop() {
-                return removeFirst();
-            }
+           
 
             /**
              * Removes the first occurrence of the specified element in this
