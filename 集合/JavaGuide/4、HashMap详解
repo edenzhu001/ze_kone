@@ -1,0 +1,97 @@
+前面2节讲了ArrayList LinkedList 现在来看 HashMap 这个是面试 必问的东西 要认真看 看懂才行...
+
+一、HashMap简介
+   HashMap主要是用来存放键值对的，它是基于Hash表的Map接口来实现的。
+    JDK1.8以前HashMap是 数组+链表组成，数组是HashMap的主体，链表主要是解决Hash冲突而存在(拉链法解决冲突)
+    
+    JDK1.8以后，在解决Hash冲突时有了变化，  当链表长度大于阈值(默认为8)，将链表转为红黑树，以减少搜索时间
+    
+二、底层结构原理
+    1、在1.8以前，HashMap是数组+链表结合在一起 也就是链表散列。
+      (1)HashMap要利用哈希函数来确定Entry的插入的位置也就是Entry的索引,例如put("hello",0),插入一个key为hello的元素.
+        hanhMap内部会通过哈希函数将hello得到一个值,这个值就是数组中的index。为什么是散列？因为这个index并不一定是连续的。
+        这样就可以把Entry对象插入到数组中。
+        (2)但是这样有问题，因为数组长度有限，当Entry越来越多，就会得到相同的索引，就发生了索引冲突。
+        HashMap这样来解决，数组中存放的是一个链表的头结点，每一个Entry可以通过next找到下一个节点的位置，从而找到下一个拥有相同index的Entry。所以当产生相同
+        的index时，再比较key值。若key值相等则直接覆盖，否则直接添加到链表头部，以解决冲突。
+        这就是【拉链法解决hash冲突】,链表和数组相结合。而桶的概念就是这个链表，桶的深度就是链表的长度。
+
+      需要注意的是 插入的位置是头部。TODO疑问。
+      
+      所谓 “拉链法” 就是：将链表和数组相结合。也就是说创建一个链表数组，数组中每一格就是一个链表。若遇到哈希冲突，则将冲突的值加到链表中即可。
+
+      HashMap如何使数据均匀分布,HashMap的扩容 TODO
+    
+    2、如何得到索引 => 每个对象的hashcode值 经过hash()也就是扰动函数，得到索引index
+      HashMap 通过 key 的 hashCode 经过扰动函数处理过后得到 hash 值，然后通过 (n - 1) & hash 判断当前元素存放的位置，即索引。
+      所谓扰动函数指的就是 HashMap 的 hash 方法。使用 hash 方法也就是扰动函数是为了防止一些实现比较差的 hashCode() 方法 ，
+      换句话说使用扰动函数之后可以减少碰撞。
+      扰动方法比较：  
+      JDK1.8的hash方法：
+            static final int hash(Object key) {
+                int h;
+                // key.hashCode()：返回散列值也就是hashcode
+                // ^ ：按位异或   参加运算的两个对象，如果两个相应位为“异”（值不同），则该位结果为1，否则为0。
+                // >>>:无符号右移，忽略符号位，空位都以0补齐
+                return (key == null) ? 0 : (h = key.hashCode()) ^ (h >>> 16);
+            }
+      对比一下JDK1.7的hash方法
+            static int hash(int h) {
+                // This function ensures that hashCodes that differ only by
+                // constant multiples at each bit position have a bounded
+                // number of collisions (approximately 8 at default load factor).
+
+                h ^= (h >>> 20) ^ (h >>> 12);
+                return h ^ (h >>> 7) ^ (h >>> 4);
+            }
+      相对来说，JDK8的hash方法性能会稍微优于jdk7，因为7毕竟扰动了4次。
+      
+    3、jdk1.8在解决哈希冲突时有了较大的变化，当链表长度大于阈值（默认为8）时，将链表转化为红黑树，以减少搜索时间。
+      所以 1.8HashMap的底层结构是【数组+链表+红黑树】，数组长度默认为16，接受null值，非线程安全。
+       二叉查找树->左子节点小于父节点，右子节点大于父节点，查找的最大次数等于树的高度，复杂度为O(lg(n))
+       为了防止退化，形成单链，红黑树出现。
+       红黑树->自平衡的二叉查找树：从根节点到叶子节点的最大长度不会超过最小长度的2倍，确保达到平衡。使得树的高度最低，减少搜索复杂度。
+       稍后会有个章节来讲一下这个树结构。
+       
+       由它的部分源码 来解答=>
+       类属性：
+            public class HashMap<K,V> extends AbstractMap<K,V> implements Map<K,V>, Cloneable, Serializable {
+                // 序列号
+                private static final long serialVersionUID = 362498820763181265L;    
+                // 默认的数组的初始容量是16=2^4
+                static final int DEFAULT_INITIAL_CAPACITY = 1 << 4;   
+                // 最大容量
+                static final int MAXIMUM_CAPACITY = 1 << 30; 
+                // 默认的填充因子
+                static final float DEFAULT_LOAD_FACTOR = 0.75f;
+                // 当【桶(bucket)】上的结点数大于这个值时会转成红黑树，这个桶说的就是链表，也就是链表的长度大于这个阈值8就会转换为红黑树
+                static final int TREEIFY_THRESHOLD = 8; 
+                // 当桶(bucket)上的结点数小于这个值时树转链表
+                static final int UNTREEIFY_THRESHOLD = 6;
+                // 桶中结构转化为红黑树对应的table的最小大小 当数组长度大于64时，链表都会转化为红黑树
+                static final int MIN_TREEIFY_CAPACITY = 64;
+                
+                // 存储元素的数组table，长度总是2的幂次倍
+                transient Node<k,v>[] table; 
+                
+                // 存放具体元素的集 TODO 疑问
+                transient Set<map.entry<k,v>> entrySet;
+                
+                // 存放元素的个数，注意这个不等于数组的长度。是所有的元素
+                transient int size;
+                
+                // 每次扩容和更改map结构的计数器
+                transient int modCount;   
+                
+                // 临界值 当实际大小(容量*填充因子)超过临界值时，会进行扩容 TODO 实际大小是指？？？容量是指？？？
+                int threshold;
+                
+                // 加载因子
+                final float loadFactor;
+            }
+            
+            加载因子
+       
+     
+    
+   
