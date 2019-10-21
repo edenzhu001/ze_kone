@@ -1,0 +1,121 @@
+一、Lock接口
+    在之前的小节中，
+    介绍了如何使用Lock实现和synchronized关键字类似的同步功能，只是Lock在使用时需要显式地获取和释放锁，synchronized实现的隐式的获取所和释放锁。
+
+    虽然没有隐式的去加锁和释放锁，但是 手动加锁释放锁，
+    这样可以拥有获取锁和释放锁的可操作性，可中断的获取锁，超时获取锁等多个synchronized不能实现的功能。
+    
+    1.java8中locks包下的类：
+      concurrent并发包下：
+      
+      AbstarctQueuedSynchronizer---->AbstractOwnableSynchronizer<------AbstractQueuedLongSynchronizer
+      
+      ReentrantReadWriteLock------>ReadWriteLock
+      
+      ReentrantLock ---> Lock
+      
+   从上述描述中，Lock接口实现主要有：ReentrantLock，其中ReentrantLock中使用了AbstractQueuedSynchronizer(队列同步器)AQS
+   
+   2.Lock类的接口设计
+    lock()获取锁，当获取到锁后，该方法返回。
+    lockInterruptibly()可以中断的获取锁，该方法会响应中断，即在锁的获取中可以中断当前线程。
+    newCondition(),
+    tryLock()尝试非阻塞的获取锁，调用后立即返回，获取到锁返回true，否则返回false.
+    tryLock(long time,TimeUnit unit)在超时时间内获取到锁；在超时时间内中断；超时时间结束返回false。
+    unLock()释放锁
+    
+二、队列同步容器AQS
+    
+     队列同步器AbstarctQueuedSynchronizer(AQS)是用来构建锁或者其他同步组件的基础框架。
+     它使用一个int成员变量表示同步状态，通过内置的FIFO队列来完成资源获取线程的排队工作。
+     
+     (1)使用锁同步共享变量时，要知道这个变量的状态(是否被其他线程锁住)，int成员变量的作用
+     (2)既然是同步共享资源，肯定会有一些线程无法获取到共享资源等待获取锁 而进入一个容器中进行保存。
+     这个容器就是内置的FIFO队列。
+     
+     同步器主要使用方式是继承，子类通过继承实现抽象方法。
+     对状态进行更改：setState getState compareAndSetState 它们能够保证状态的改变是安全的。
+     
+     同步器是实现锁的关键。
+     ReentrantLock实现了Lock接口，ReentrantLock中使用了AQS.
+     
+     (1)锁和同步器很好地隔离了使用者和实现者所需关注的领域。
+     
+     (2)锁是面向使用者的,怎么样去操作；同步器则是实现这个锁，包括同步，线程管理等
+     
+     1.AbstractQueuedSynchronizer主要方法
+        AQS是一个抽象类，但是没有一个抽象方法。
+        
+        (1)protected类别
+            tryAcquire()   独占式获取锁的同步状态，实现该方法需要查询当前状态，并判断同步状态是否符合预期，然后再进行CAS设置同步状态。
+            tryRelease()   独占式释放同步状态
+            tryAcquireShared()  共享式获取同步状态，返回大于等于0的值，表示获取成功，反之 失败
+            tryReleaseShared()  共享式释放同步状态
+            isHeldExclusively()  一般表示同步器是否被当前线程所占
+         源码：   
+             protected boolean tryAcquire(int arg) {
+                  throw new UnsupportedOperationException();
+              }
+              
+             protected boolean tryRelease(int arg) {
+                  throw new UnsupportedOperationException();
+              }
+              
+           可以看出这些方法都是空实现抛出异常。也就是说我们必须要在子类中重写这些方法。这就是"模板方式模式"的一种体现和使用。
+           
+        (2)public final类别
+            这类方法是final修饰的，我们可以直接用的方法。称之为"模板方法" 。
+            实现自定义的同步组件，调用这些模板方法。
+            常用的有：
+            void acquire():独占式获取同步状态，如果当前线程获取同步状态成功，则立即返回。否则进入同步队列等待，该方法会调用tryAcquire(int arg)方法
+            
+            ...
+            分为3类：
+            独占式获取和释放同步状态 
+            共享式获取和释放同步状态
+            查询同步队列中的等待线程情况
+            
+        (3)protected final类别
+            获取设置修改 这个int同步状态成员变量方法
+            getState() setState(int) compareAndSetState(int,int)
+            另外还有hasWaiters、getWaitQueueLength、getWaitingThreads三个方法。
+            
+      2.来看看AQS AbstractQueuedSynchronizer的内部类
+      
+        2个内部类：ConditionObject Node
+      
+      3.ConditionObject内部类
+          (1)ConditionObject类
+              在使用synchronized的时候是 wait notify来实现通信。
+              ReentrantLock是通过Condition来实现通信。condition.await()  condition.signal()
+              
+          (2)Condition接口如下：
+              await()
+              awaitUninterruptibly()
+              awaitNanos()
+              await(long ,timeUnit)
+              awaitUtil(Date)
+              signal()
+              signalAll()
+          
+          (3)ConditionObject实现了Condition接口：
+          
+          (4)调用ReentrantLock的newCondition方法返回的是ConditionObject对象
+              public Condition newCondition() {
+                  return sync.newCondition();
+              }
+              
+              final ConditionObject newCondition() {
+                  return new ConditionObject();
+              }
+              
+      4.Node内部类
+        同步器有个同步队列FIFO双向队列来完成同步状态的管理。
+        当前线程获取同步状态失败时，同步器会将当前线程以及等待的线程构造成一个节点。并加入同步队列，同时会阻塞当前线程；当同步状态释放时，会把首节点
+        中的线程唤醒，使其再次尝试获取同步状态。
+        
+        (1)同步队列的基本结构
+          同步队列中的节点Node用来保存
+          获取同步状态失败的线程引用、等待状态、前驱和后继节点
+          int waitStatus 1.CANNELLED 值为1。由于在同步队列中等待的线程等待超时或被中断，需要从队列中取消等待，节点进入该状态将不会变化。
+              
