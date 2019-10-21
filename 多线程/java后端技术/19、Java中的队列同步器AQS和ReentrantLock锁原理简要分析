@@ -141,6 +141,211 @@
         这个存储功能在尾部存放的是需要排队等待的线程，在头部获取的是【获取到锁的线程信息】
         
      三、ReentrantLock的设计和实现
+        ReentrantLock类实现了Lock接口，
+        内部类包含Sync、NonfairSync(非公平锁)、FairSync(公平锁)。
+        而Sync正式继承了AQS这个抽象类，NonfairSync和FairSync继承了Sync类。
         
-                            
+        AQS同步器是面向的是锁的实现者，即内部封装了锁的实现，同步队列，获取同步锁等等操作。
+        Lock是锁的使用者。
+        
+        1.Sync内部类   AQS的方法3部分：对锁的获取释放方法 ；模板方法；同步状态的设置获取和修改
+            AQS中5个protected方法，也是Sync需要重写的。
+            
+            Sync只是重写tryRelease() 方法，其他的留给了Sync的子类去实现了。tryAcquire()其实是在NonfairSync和FairSync上场了！
+            
+       2.NonfairSync和FairSync内部类
+            NonfairSync和FairSync类似，这里只分析一下FairSync类。
+            static final class FairSync extends Sync {
+                private static final long serialVersionUID = -3000897897090466540L;
+
+                final void lock() { // 实现了lock方法，方法中调用了AQS的acquire方法，但是在AQS的acquire方法中它调用的是tryAcquire方法。其实现就在
+                                    // 下面的重写中
+                    acquire(1);
+                }
+            
+                FairSync的lock调用的AQS的acquire(),acquire()调用的是tryAcquire().
+                所以真正执行的是FairSync中的tryAcquire()也就是下面的方法。
+
+                /**
+                 * 这个tryAcquire是重写了AQS中的tryAcquire。
+                 */
+                protected final boolean tryAcquire(int acquires) {
+                    final Thread current = Thread.currentThread();
+                    int c = getState();
+                    if (c == 0) {
+                        if (!hasQueuedPredecessors() &&
+                            compareAndSetState(0, acquires)) {
+                            setExclusiveOwnerThread(current);
+                            return true;
+                        }
+                    }
+                    else if (current == getExclusiveOwnerThread()) {
+                        int nextc = c + acquires;
+                        if (nextc < 0)
+                            throw new Error("Maximum lock count exceeded");
+                        setState(nextc);
+                        return true;
+                    }
+                    return false;
+                }
+            }
+
+            而我们在使用ReentrantLock时的lock() 或者unLock()实际上调动的是它的父接口Lock接口中的lock方法和unlock方法。
+            而lock方法真正的实现是在Sync里面的lock()或者说是FairSync中的lock()方法
+        
+        
+          四、ReentrantLock简易版本
+          
+                import java.util.concurrent.TimeUnit;
+                import java.util.concurrent.locks.AbstractQueuedSynchronizer;
+                import java.util.concurrent.locks.Condition;
+                import java.util.concurrent.locks.Lock;
+
+                public class MockReentrantLock<main> implements Lock {
+
+                    private final Sync sync = new FairSync();
+                    
+                    /**
+                    *Sync内部类
+                    */
+                    abstract static class Sync extends AbstractQueuedSynchronizer{
+
+                        abstract Condition newCondition();
+
+                        final boolean fairTryAcquire(int acquires) {
+                            // 当状态为0时 获取锁
+                            if (compareAndSetState(0, 1)) {
+                                setExclusiveOwnerThread(Thread.currentThread());
+                                return true;
+                            }
+                            return false;
+                        }
+
+                        @Override  // 实现AQS中的tryRelease方法
+                        protected final boolean tryRelease(int releases) {
+                            //  释放锁，把状态改为0
+                            if (getState() == 0) {
+                                //throw new Exception();
+                            }
+                            setExclusiveOwnerThread(null);
+                            setState(0);
+                            return true;
+                        }
+                    }
+
+                    /**
+                     * FairSync内部类
+                     * 重写 是否占用状态；tryAcquire；tryRelease在Sync已经实现
+                     */
+                    public static class FairSync extends Sync {
+
+
+                        @Override
+                        protected boolean isHeldExclusively() {
+                            // 是否占用状态
+                            return getState() == 1;
+                        }
+
+                        @Override
+                        protected boolean tryAcquire(int arg) {
+                            // 当状态为0时 获取锁
+                            if (compareAndSetState(0, 1)) {
+                                setExclusiveOwnerThread(Thread.currentThread());
+                                return true;
+                            }
+                            return false;
+                        }
+
+                        Condition newCondition() {
+                            return new ConditionObject();
+                        }
+
+                    }
+
+                    @Override//调用 AQS的acquire方法 其内部是tryAcquire方法。然后tryAcuqire的实现方法在内部类FairSync中
+                    public void lock() {
+                        sync.acquire(1);
+                    }
+
+                    @Override
+                    public void unlock() {
+                        sync.release(1);//调用的是AQS的release方法，但是release方法中也是tryRelease方法。实现在Sync中。
+                    }
+
+                    @Override
+                    public boolean tryLock() {
+                        return sync.fairTryAcquire(1);
+                    }
+
+                    @Override
+                    public Condition newCondition() {
+                        return sync.newCondition();
+                    }
+
+                    @Override
+                    public void lockInterruptibly() throws InterruptedException {
+
+                    }
+
+                    @Override
+                    public boolean tryLock(long time, TimeUnit unit) throws InterruptedException {
+                        return false;
+                    }
+
+                    public static void main(String[] args) {
+                        MockReentrantLock lock = new MockReentrantLock();
+                        Condition condition = lock.newCondition();
+
+                        new Thread(() -> {
+                            lock.lock();
+                            try {
+                                System.out.println("进入等待...");
+                                condition.await();
+                                System.out.println("收到通知，继续执行...");
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            } finally {
+                                lock.unlock();
+                            }
+                        }, "Thread1").start();
+
+                        new Thread(() -> {
+                            try {
+                                System.out.println("模拟3秒后，发送通知...");
+                                Thread.sleep(3000);
+
+                                lock.lock();
+                                System.out.println("发送通知!");
+                                condition.signal();
+                                lock.unlock();
+                            } catch (InterruptedException e) {
+                                e.printStackTrace();
+                            } finally {
+                                lock.unlock();
+                            }
+                        }, "Thread2").start();
+                    }
+                }
+            结果：
+                进入等待...
+                模拟3秒后，发送通知...
+                发送通知!
+                收到通知，继续执行...
+
+        总结：
+        AQS成员变量int表示同步状态，同步双向队列有首节点和尾节点。
+            内部类就有Node，队列中的元素
+            内部类还有ConditionObject,继承了condition.拥有await() signal()方法。
+            
+            其中方法有3类：
+                    获取释放同步状态的方法；模板方法；设置获取修改同步状态的方法
+            
+        ReentrantLock 实现了 Lock方法，所以要实现
+            lock(调用了AQS的acquire方法，方法内部是tryAcquire,实现体在FairSync或NonFairSync中)  
+            unlock(调用了AQS的release方法，，方法内部是tryRelease,实现体在Sync类中) 
+            tryLock调用的是Sync中的方法。
+            
+            内部类有Sync继承了AQS,实现了tryRelease() 。
+            内部类NonfairSync和FairSync继承了Sync类，实现了tryAcquire方法。
+            
               
