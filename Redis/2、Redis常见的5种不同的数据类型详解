@@ -1,0 +1,108 @@
+前言
+
+  Redis常用的5种数据类型 String list hashes set zset，不同的数据类型 有不同的操作指令。
+  
+  一、String字符串类型
+      由字节组成的序列。
+    命令：
+      set hello world
+      get hello
+      del hello
+      set a 1
+      incr a +1操作
+      get a
+      decr a -1操作
+      get a
+      incrby a 2 +2操作 增加步长
+      decrby a 2 -2操作 减少步长
+     
+     追加value1到a的值后面 append key value1
+      append a bbb
+     包含由start和end范围内的字符串，包含start end。 getrange key start end
+      getrange  a 0 1 无index越界
+     将start偏移量开始的子串设置为给定的值 setrange key offset value
+     setrange a 1 cccc
+    
+    应用场景：
+      比如想知道什么时候封锁一个IP(访问超过多少次)
+      INCRBY命令可以实现原子递增操作
+ 
+ 二、List列表数据类型
+      使用双链表实现的list。
+      通过list可以实现最新消息的排行功能(微博的timeline时间轴)。
+      消息队列，push操作放入队列中 ，pop操作取出消息。
+      
+      List类型的实例可以包含重复的元素。
+      
+      命令：
+        从右边添加元素 rpush key value
+        rpush list a
+        rpush list b
+        从左边添加元素 lpush key value
+        lpush list c
+        lpush list d
+        从右边删除元素 rpop key
+        rpop list
+        从左边删除元素lpop key 
+        lpop list
+        范围查询 lrange key 0 -1
+        lrange list 0 -1 所有元素
+        根据下标获取元素 lindex key index
+        lindex list 0 下标从0开始
+        
+      应用场景：
+        微博timeline、消息队列
+        
+  三、Set集合
+      集合通过散列表来保证自己的元素是不重复的。无序的方式。
+      
+     命令：
+      将vlaue添加到key集合中 sadd key value
+      sadd set1 a
+      sadd set1 b
+      sadd set1 c
+      查看 smembers key
+      smembers set1
+      检查是否存在 sismember key value
+      sismember seet1 a 存在返回1，否则返回0
+      
+      集合包含的元素数量 scard key
+      scard set
+      随机返回元素srandmember key [count]
+      srandmember set
+      移动元素 smove source-key dest-key value
+      smove set set1 a
+      差集 sdiff source-key dest-key
+      sdiff set set1
+      交集 sinter source-key dest-key
+      sinter set set1
+      并集 sunion source-key dest-key
+      sunion set set1
+      
+    使用场景：
+      共同好友、二度好友
+      利用唯一性，可以统计访问网站的所有独立Ip
+      好友推荐，可以通过交集的个数大于某个阈值就可以推荐
+  
+  四、hash散列类型
+      
+      hash的散列可以存储多个k-v之间的映射。就是在value就是一个hashmap。
+      
+      命令：
+      添加 hset hash-key key value
+      hset user name 张三
+      hset user age 18
+      获取hget hash-key key
+      hget user name
+      hget user age
+      获取所有
+      hgetall user
+      删除某个key hdel hash-key key
+      hdel user name
+      
+      
+      
+        
+      
+    
+     
