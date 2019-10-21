@@ -85,6 +85,12 @@
       好友推荐，可以通过交集的个数大于某个阈值就可以推荐
   
   四、hash散列类型
+      数据结构：ziplist（压缩列表）和hashtable。
+      当 (1)哈希对象保存的所有键值对的K和V的字符串长度都小于64字节
+         (2)键值对数量小于512个
+      则采用ziplist 压缩列表。遍历查询元素，时间复杂度为O(N^2)
+      
+      如果是使用hashtable编码方式，则时间复杂度为O(1)
       
       hash的散列可以存储多个k-v之间的映射。就是在value就是一个hashmap。
       
@@ -99,6 +105,37 @@
       hgetall user
       删除某个key hdel hash-key key
       hdel user name
+      
+      设置多个对象hmset hash-key key1 value1 key2 value2...
+      hmset user age 18 address bbbb
+      获取多个key的值 hmget hash-key key1 key2...
+      hmget user age address
+      获取hash的长度或元素数量hlen hash-key
+      hlen user
+      删除多个key hdel hash-key key1 key2...
+      hdel user age address
+      
+      
+   五、有序集合Zset数据类型
+    
+      有序集合和散列一样，用于存储k-v对。 有序集合的成员是member,每个成员独一无二。
+      有序集合的值称为分值score,分值必须是浮点数。
+      
+      【有序集合是redis唯一一个可以根据成员访问元素，并且可以根据分值以及分值排序来访问到元素。】
+      
+      zadd 将一个带有给定分值的成员添加到里面
+      zadd zset1 11 aa
+      zadd zset1 12 bb
+      
+      zrange 获取有序集合中所处位置，从有序集合中获取多个元素
+      zrange zset1 0 -1 withscores
+      
+      zrangebyscore 获取有序集合在给定分值范围内的 所有元素
+      zrangebyscore zset1 0 800 withscore
+      
+      zrem如果给定元素存在在有序集合中则返回1
+      zrem zset1 aa
+      
       
       
       
