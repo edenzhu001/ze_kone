@@ -1,0 +1,29 @@
+
+一、简介
+Redis是一种开源的k-v存储系统，可以用作数据库、缓存和消息中间件。
+
+支持多种数据结构，
+常用的有，字符串String 散列hashes 列表list 集合Sets 有序集合Zset。
+
+Redis 将数据储存在内存里面，读写数据的时候都不会受到硬盘 I/O 速度的限制，所以速度极快。
+
+
+二、Redis的优势优点
+
+  1.性能极高 。 读的速度是11W/s 写的速度是8.1W/s
+  2.丰富的数据类型 。支持二进制的String list hashes set zset 
+  3.原子性 。redis所有的操作都是原子性的，同时redis还支持几个操作合并后的原子性执行
+  4.丰富的特性。 支持 publish /subscribe(发布/订阅)，通知，key过期等等
+  
+  5.Redis支持持久化，可以将内存中的数据保存到磁盘中
+  6.支持数据备份，master-salve模式的数据备份
+  
+ 三、Redis Memcached的区别
+  Mencached是高性能k-v缓存服务器。
+  (1)Redis支持丰富的数据类型 String  list  hashes set zset
+  Memcached只支持String
+  (2)memcached要添加数据只能APPEND的方式将数据添加到已有字符串的末尾，将字符串当做list来使用。
+    删除时通过黑名单来隐藏列表里的元素。
+    Redis的list  Set 直接是删除添加元素。
+  (3)memcached不支持持久化，Redis支持持久化，把内存中的数据保存到磁盘中
+  (4)应用场景：Redis可以做nosql数据库，消息队列，数据缓存等等
