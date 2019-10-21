@@ -1,0 +1,198 @@
+很久没看这个线程ThreadLocal类，来回顾一下...
+
+ThreadLocal会造成OOM问题，来了解一下。
+
+ThreadLocal就是线程本地的局部变量，在使用ThreadLocal维护变量时，它可以为每个使用该变量的线程提供独立变量副本。
+所以每个线程可以独立的改变自己的副本，而不会影像其他副本。
+
+作用：
+(1)解决线程共享变量问题。
+(2)ThreadLocal提供了线程内的一个局部变量，在整个生命周期中期作用，减少了一个线程内多个函数或组建之间的参数传递复杂度。
+
+一、ThreadLocal类
+
+      ThreadLocal
+        |-class ThreadLocalMap 
+              |-class Entry extends WeakReference<ThreadLocal<?>>
+        |-get()
+        |-set()
+        |-remove()
+        |-initialValue()
+
+     顺便把Thread类也写一下。
+     Thread
+        |-ThreadLocal.ThreadLocalMap threadLocals
+
+     ThreadLocal如何做到为每个线程提供独立的变量副本呢？
+     实现思路：
+      在ThreadLocal类中有个static修饰的map，用于存储每个线程的变量副本，map中的元素key为线程对象，而值对应的是变量副本。
+      public class MockThreadLoca<T>{
+          public static Map<Thread,T> mockThreadLocal = new Collections.synchronizedMap(new HashMap<Thread,T>());
+
+          public void set(T t){
+            mockThreadLocal.put(Thread.currentThread(),t);
+          }
+
+          public T get(){
+              return mockThreadLocal.get(Thread.currentThread());
+          }
+
+          public static void main(String[] args){
+              MockThreadLocal<String> strThreadLocal  = new MockThreadLocal();
+
+              new Thread(()->{
+                  strThreadLocal.set("aaaaa");
+
+                  strThreadLocal.set("bbbbb");
+
+                  System.out.println(Thread.currentThread().getName() +"->value:"+strThreadLocal.get()):
+
+              }).start();
+
+              new Thread(()->{
+                  strThreadLocal.set("hello");
+
+                  strThreadLocal.set("world");
+
+                  System.out.println(Thread.currentThread().getName() +"->value:"+strThreadLocal.get()):
+
+              }).start();
+          }
+      }
+
+     结果：
+          Thread-0->value:bbbbb
+          Thread-1->value:world
+      
+  二、ThreadLocal源码分析
+      1.线程的局部变量当然就是在线程的属性
+      
+        public class Thread implements Runnable {
+            private static native void registerNatives();
+            static {
+                registerNatives();
+            }
+            ......
+            
+            ThreadLocal.ThreadLocalMap threadLocals = null;
+            
+            ThreadLocal.ThreadLocalMap inheritableThreadLocals = null;
+            
+            ......
+        }
+        
+        所以是线程局部变量是存储在Thread对象的threadLocals属性中，而这个threadLocals属性是一个ThreadLocal.ThreadLocalMap对象。
+        
+        ThreadLocalMap为ThreadLocal的静态内部类
+            public class ThreadLocal<T> {
+                  ......
+                  
+                  static class ThreadLocalMap {
+                       static class Entry extends WeakReference<ThreadLocal<?>> {
+                          Object value;
+
+                          Entry(ThreadLocal<?> k, Object v) {
+                              super(k);
+                              value = v;
+                          }
+                      }
+                  }
+            
+                  ......
+            }
+            
+        2.Thread和ThreadLocalMap的关系
+            由图都可以看出，
+              每个Thread实例都有一个ThreadLocalMap。在上图中的一个Thread的ThreadLocalMap中分别存放了3个Entry，默认一个ThreadLocalMap初始化了16个
+              Entry，每一个Entry对象存放的是一个ThreadLocal变量对象。
+              
+        3.ThreadLocalMap 与 WeakReference
+           ThreadLocalMap是以ThreadLocal对象为key的map，把ThreadLocal对象包装了2层。
+           (1)第一层包装：使用WeakReference<ThreadLocal<?>>将ThreadLocal对象变成一个弱引用对象
+           (2)第二层包装：定义了一个专门的类Entry来扩展WeakReference<ThreadLocal<?>>
+                static class ThreadLocalMap {
+                       static class Entry extends WeakReference<ThreadLocal<?>> {
+                          Object value;
+
+                          Entry(ThreadLocal<?> k, Object v) {
+                              super(k);
+                              value = v;
+                          }
+                      }
+                  }
+        4.ThreadLocalMap 的构造函数
+            TheadLocalMap(ThreadLocal<?> firstKey,Object firstValue){
+                // 无非就是将k-v放入map中。map的初始大小为16.
+                // 索引值  不是像HashMap一样根据hash值获取，而是根据nextHashCode 线性探测。逐增 或逐减来实现得到索引。
+                // 使用一个 static 的原子属性 AtomicInteger nextHashCode，通过每次增加 HASH_INCREMENT = 0x61c88647 ，
+                // 然后 & (INITIAL_CAPACITY - 1) 取得在数组 private Entry[] table 中的索引。
+            }
+   
+   三、ThreadLocal的set方法
+        1.为什么要用 ThreadLocalMap 来保存线程局部对象呢？
+        原因是一个线程拥有的的局部对象可能有很多，这样实现的话，那么不管你一个线程拥有多少个局部变量，
+        都是使用同一个 ThreadLocalMap 来保存的，ThreadLocalMap 中 private Entry[] table 的初始大小是16。超过容量的2/3时，会扩容。
+        
+        2.每个线程可以存储多个ThreadLocal对象变量，但是每个变量只能存储一个值。多次set会被覆盖。
+        ThreadLocal变量的值始终是只有一个的，即以前的值被覆盖了的！
+        这里是因为Entry对象是以该ThreadLocal变量的引用为key的，所以多次赋值以前的值会被覆盖，特此注意！
+        
+   四、ThreadLocal的get方法
+        
+        
+   五、ThreadLocal的内存回收
+       涉及到2个层面的内存自动回收。
+       
+       (1)ThreadLocal层面的内存回收
+        当线程死亡时，那么所有保存在线程的ThreadLocalMap属性中的局部变量就会被回收。
+        Thread对象中的ThreadLocal.ThreadLocalMap threadLocals会被回收，这是显然的。
+       
+       (2)ThreadLocalMap 层面的内存回收
+        如果线程的存活时间很长，并且该线程保存的局部变量很多(也就是Entry对象很多)。那就涉及到线程生命周期内
+        如何回收ThreadLocalMap的内存了。如果Entry越来越多，占用的内存也会越大。很多已经不需要的局部变量就可以清理掉。
+        方式：
+          Ehtry对象使用的key是WeakReference的包装，
+          回收机制：当ThreadLocalMap中的private Entry[] table的元素数超过数组长的2/3，就会执行回收Entry机制。
+          
+   六、ThreadLocal可能引起的OOM内存溢出问题简要分析
+       out of memory
+        内存泄露：申请使用完的内存没有释放，导致虚拟机不能再次使用该内存，此时这段内存就泄露了，因为申请者不用了，而又不能被虚拟机分配给别人用。
+        内存溢出：申请的内存超出了JVM能提供的内存大小，此时称之为溢出。
+        
+        我们都知道ThreadLocal变量的维护在Thread对象中。如果线程不退出，那么这些变量就会一直存在。
+        当线程退出时，Thread类会进行清理工作。这些局部变量就会清除。
+        
+        但是在线程的生命周期中，有一些很大的局部变量或很多的局部变量设置在这个ThreadLocal中时，并且大部分都是不会再用的变量，
+        就有可能出现内存泄漏。
+        
+        ThreadLocal+线程池容易出现内存泄漏。
+     
+     
+    总结：
+      （1）ThreadLocal只是操作Thread中的ThreadLocalMap对象的集合；
+
+      （2）ThreadLocalMap变量属于线程的内部属性，不同的线程拥有完全不同的ThreadLocalMap变量；
+
+      （3）线程中的ThreadLocalMap变量的值是在ThreadLocal对象进行set或者get操作时创建的；
+
+      （4）使用当前线程的ThreadLocalMap的关键在于使用当前的ThreadLocal的实例作为key来存储value值；
+
+      （5） ThreadLocal模式至少从两个方面完成了数据访问隔离，即纵向隔离(线程与线程之间的ThreadLocalMap不同)和
+      横向隔离(不同的ThreadLocal实例之间的互相隔离)；
+
+      （6）一个线程中的所有的局部变量其实存储在该线程自己的同一个map属性中；
+
+      （7）线程死亡时，线程局部变量会自动回收内存；
+
+      （8）线程局部变量时通过一个 Entry 保存在map中，该Entry 的key是一个 WeakReference包装的ThreadLocal, value为线程局部变量，
+      key 到 value 的映射是通过：ThreadLocal.threadLocalHashCode & (INITIAL_CAPACITY - 1) 来完成的；
+
+      （9）当线程拥有的局部变量超过了容量的2/3(没有扩大容量时是10个)，会涉及到ThreadLocalMap中Entry的回收；
+
+      对于多线程资源共享的问题，同步机制采用了“以时间换空间”的方式，而ThreadLocal采用了“以空间换时间”的方式。前者仅提供一份变量，
+      让不同的线程排队访问，而后者为每一个线程都提供了一份变量，因此可以同时访问而互不影响。
+        
+        
+       
+      
+      
