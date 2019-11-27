@@ -24,4 +24,15 @@ Redis持久化的方式有2种：
     一般在停止redis，就可以使用SAVE命令来保存快照数据。
     
     
-    AOF:
+    AOF:aof持久化会将被执行的写命令写到AOF文件的末尾，依次来记录数据发生的变化。
+        打开AOF  ->  appendly yes
+        同步频率  ->  appendfsync everysec/always/no
+        always -> 每个redis写命令都要写入硬盘，严重降低redis的速度。
+        appendfsync -> 每秒中执行一次，显示的将多个命令写入硬盘
+        no -> 让操作系统来决定应该何时进行同步
+        重写或压缩AOF文件 -> 随着数据量增大，AOF文件也在增大。这样会导致进行数据恢复要用很长的时间。
+        解决：-> 用户可以向redis发送BGWRITEAOF命令，该命令会通过移除AOF文件中中冗余命令来重写AOF文件。BGWRITEAOF命令-> Redis会创建一个子线程，负         责。对AOF文件重写。也会面临性能和内存占用问题。
+        触发重写/压缩AOF文件条件设定 -> auto-aof-rewriteaof-percentage 100
+                                      auto-aof-rewriteaof-min-size 64mb
+                                      表示当前AOF的文件体积大于64MB，并且AOF文件的体积比上一次重写之后的体积变大了至少一倍（100%）的时候，Redis                                       将执行重写BGREWRITEAOF命令。
+        
